@@ -716,8 +716,7 @@ ee.ImageCollection = function(args) {
  * @param {function ({bands: (Array<ee.data.BandDescription>|null), features: (Array<ee.data.ImageDescription>|null), id: (string|undefined), properties: (Object|null|undefined), type: string, version: (number|undefined)}, string=): ?=} opt_callback
  * @return {{bands: (Array<ee.data.BandDescription>|null), features: (Array<ee.data.ImageDescription>|null), id: (string|undefined), properties: (Object|null|undefined), type: string, version: (number|undefined)}}
  */
-ee.ImageCollection.prototype.getInfo = 
-function(opt_callback) {
+ee.ImageCollection.prototype.getInfo = function(opt_callback) {
 };
 /**
  * @param {(Object|null)=} opt_visParams
@@ -836,6 +835,13 @@ ee.data.cancelTask = function(taskId, opt_callback) {
  * @return {(Object|null)}
  */
 ee.data.createAsset = function(value, opt_path, opt_force, opt_callback) {
+};
+/**
+ * @param {string} requestedId
+ * @param {function (Array<ee.data.FolderDescription>, string=): ?=} opt_callback
+ * @return {undefined}
+ */
+ee.data.createAssetHome = function(requestedId, opt_callback) {
 };
 /**
  * @param {string} path
