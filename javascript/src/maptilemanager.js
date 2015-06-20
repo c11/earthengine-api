@@ -46,6 +46,7 @@ goog.require('goog.structs.PriorityPool');
  * A manager of a TokenPool.
  * @constructor
  * @extends {goog.events.EventTarget}
+ * @export
  */
 ee.MapTileManager = function() {
   goog.base(this);
@@ -223,38 +224,6 @@ ee.MapTileManager.prototype.disposeInternal = function() {
   requests.clear();
   this.requests_ = null;
 };
-
-
-
-/**
- * An event dispatched by MapTileManager.
- *
- * @param {goog.net.EventType} type Event Type.
- * @param {ee.MapTileManager} target Reference to the object that is the
- *     target of this event.
- * @param {string} id The id of the request this event is for.
- * @param {goog.net.ImageLoader} imageLoader The ImageLoader object
-       of the request.
- * @constructor
- * @private
- * @extends {goog.events.Event}
- */
-ee.MapTileManager.Event_ = function(type, target, id, imageLoader) {
-  goog.events.Event.call(this, type, target);
-
-  /**
-   * The id of the request this event is for.
-   * @type {string}
-   */
-  this.id = id;
-
-  /**
-   * The ImageLoader object of the request.
-   * @type {goog.net.ImageLoader}
-   */
-  this.imageLoader = imageLoader;
-};
-goog.inherits(ee.MapTileManager.Event_, goog.events.Event);
 
 
 

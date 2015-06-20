@@ -17,6 +17,7 @@ goog.provide('ee.data.Band');
 goog.provide('ee.data.BandDescription');
 goog.provide('ee.data.DownloadId');
 goog.provide('ee.data.FeatureCollectionDescription');
+goog.provide('ee.data.FeatureVisualizationParameters');
 goog.provide('ee.data.FileSource');
 goog.provide('ee.data.Fileset');
 goog.provide('ee.data.FolderDescription');
@@ -26,6 +27,7 @@ goog.provide('ee.data.GeoJSONGeometry');
 goog.provide('ee.data.ImageCollectionDescription');
 goog.provide('ee.data.ImageDescription');
 goog.provide('ee.data.ImageTaskConfig');
+goog.provide('ee.data.ImageVisualizationParameters');
 goog.provide('ee.data.IngestionRequest');
 goog.provide('ee.data.MapId');
 goog.provide('ee.data.PixelTypeDescription');
@@ -41,6 +43,7 @@ goog.provide('ee.data.VideoTaskConfig');
 
 goog.require('goog.Uri');
 goog.require('goog.array');
+goog.require('goog.functions');
 goog.require('goog.json');
 goog.require('goog.net.XhrIo');
 goog.require('goog.net.XmlHttp');
@@ -66,10 +69,19 @@ ee.data.tileBaseUrl_ = null;
 
 
 /**
- * @type {string?} A string to pass in the "xsrfToken" parameter of XHRs.
+ * @type {string?} A string to pass in the X-XSRF-Token header of XHRs.
  * @private
  */
 ee.data.xsrfToken_ = null;
+
+
+/**
+ * @type {function(!goog.Uri.QueryData, string): !goog.Uri.QueryData} A function
+ *     used to transform parameters right before they are sent to the server.
+ *     Takes the URL of the request as the second argument.
+ * @private
+ */
+ee.data.paramAugmenter_ = goog.functions.identity;
 
 
 /**
@@ -123,7 +135,7 @@ ee.data.deadlineMs_ = 0;
  * @private
  * @const
  */
-ee.data.DEFAULT_API_BASE_URL_ = '/api';
+ee.data.DEFAULT_API_BASE_URL_ = 'https://earthengine.googleapis.com/api';
 
 
 /**
@@ -151,8 +163,8 @@ ee.data.TaskUpdateActions = {
  *     endpoint.
  * @param {string?=} opt_tileBaseUrl The (unproxied) EarthEngine REST tile
  *     endpoint.
- * @param {string?=} opt_xsrfToken A string to pass in the "xsrfToken"
- *     parameter of XHRs.
+ * @param {string?=} opt_xsrfToken A string to pass in the X-XSRF-Token header
+ *     of XHRs.
  */
 ee.data.initialize = function(opt_apiBaseUrl, opt_tileBaseUrl, opt_xsrfToken) {
   // If already initialized, only replace the explicitly specified parts.
@@ -181,9 +193,6 @@ ee.data.reset = function() {
   ee.data.apiBaseUrl_ = null;
   ee.data.tileBaseUrl_ = null;
   ee.data.xsrfToken_ = null;
-  ee.data.authClientId_ = null;
-  ee.data.authScopes_ = [];
-  ee.data.authToken_ = null;
   ee.data.initialized_ = false;
 };
 
@@ -197,19 +206,32 @@ ee.data.reset = function() {
  *
  * This should be called before the EE library is initialized.
  *
+ * Note that if the user has not previously granted access to the application
+ * identified by the client ID, by default this will try to pop up a dialog
+ * window prompting the user to grant the required permission. However, this
+ * popup can be blocked by the browser. To avoid this, specify the
+ * opt_onImmediateFailed callback, and in it render an in-page login button,
+ * then call ee.data.authenticateViaPopup() from the click event handler of
+ * this button. This stops the browser from blocking the popup, as it is now the
+ * direct result of a user action.
+ *
  * @param {?string} clientId The application's OAuth client ID, or null to
  *     disable authenticated calls. This can be obtained through the Google
  *     Developers Console. The project must have a JavaScript origin that
  *     corresponds to the domain where the script is running.
  * @param {function()} success The function to call if authentication succeeded.
  * @param {function(string)=} opt_error The function to call if authentication
- *     failed, passed the error message.
+ *     failed, passed the error message. If authentication in immediate
+ *     (behind-the-scenes) mode fails and opt_onImmediateFailed is specified,
+ *     that function is called instead of opt_error.
  * @param {!Array<string>=} opt_extraScopes Extra OAuth scopes to request.
+ * @param {function()=} opt_onImmediateFailed The function to call if
+ *     automatic behind-the-scenes authentication fails. Defaults to
+ *     ee.data.authenticateViaPopup(), bound to the passed callbacks.
  * @export
- *
- * TODO(user): Figure out if we need to deal with pop-up blockers.
  */
-ee.data.authenticate = function(clientId, success, opt_error, opt_extraScopes) {
+ee.data.authenticate = function(
+    clientId, success, opt_error, opt_extraScopes, opt_onImmediateFailed) {
   // Remember the auth options.
   var scopes = [ee.data.AUTH_SCOPE_];
   if (opt_extraScopes) {
@@ -219,21 +241,84 @@ ee.data.authenticate = function(clientId, success, opt_error, opt_extraScopes) {
   ee.data.authClientId_ = clientId;
   ee.data.authScopes_ = scopes;
 
+  if (goog.isNull(clientId)) {
+    ee.data.authToken_ = null;
+    return;
+  }
+
   // Start the authentication flow as soon as we have the auth library.
-  if (goog.isObject(goog.global['gapi']) &&
-      goog.isObject(goog.global['gapi']['auth']) &&
-      goog.isFunction(goog.global['gapi']['auth']['authorize'])) {
-    ee.data.refreshAuthToken_(success, opt_error);
+  ee.data.ensureAuthLibLoaded_(function() {
+    var onImmediateFailed = opt_onImmediateFailed || goog.partial(
+        ee.data.authenticateViaPopup, success, opt_error);
+    ee.data.refreshAuthToken_(success, opt_error, onImmediateFailed);
+  });
+};
+
+
+/**
+ * Shows a popup asking for the user's permission. Should only be called if
+ * ee.data.authenticate() called its opt_onImmediateFailed argument in the past.
+ *
+ * May be blocked by pop-up blockers if called outside a user-initiated handler.
+ *
+ * @param {function()=} opt_success The function to call if authentication
+ *     succeeds.
+ * @param {function(string)=} opt_error The function to call if authentication
+ *     fails, passing the error message.
+ * @export
+ */
+ee.data.authenticateViaPopup = function(opt_success, opt_error) {
+  goog.global['gapi']['auth']['authorize']({
+    'client_id': ee.data.authClientId_,
+    'immediate': false,
+    'scope': ee.data.authScopes_.join(' ')
+  }, goog.partial(ee.data.handleAuthResult_, opt_success, opt_error));
+};
+
+
+/**
+ * Configures client-side authentication of EE API calls by providing a
+ * current OAuth2 token to use. This is a replacement for expected
+ * ee.data.authenticate() when a token is already available.
+ * @param {string} clientId The OAuth client ID associated with the token.
+ * @param {string} tokenType The OAuth2 token type, e.g. "Bearer".
+ * @param {string} accessToken The token string, typically looking something
+ *     like "ya29.hgGGO...OtA".
+ * @param {number} expiresIn The number of seconds after which this token
+ *     expires.
+ * @param {!Array<string>=} opt_extraScopes Extra OAuth scopes associated with
+ *     the token.
+ * @param {function()=} opt_callback A function to call when the token is set.
+ * @param {boolean=} opt_updateAuthLibrary Whether to also update the token
+ *     set in the Google API Client Library for JavaScript. Defaults to true.
+ * @export
+ */
+ee.data.setAuthToken = function(clientId, tokenType, accessToken,
+                                expiresIn, opt_extraScopes, opt_callback,
+                                opt_updateAuthLibrary) {
+  var scopes = [ee.data.AUTH_SCOPE_];
+  if (opt_extraScopes) {
+    goog.array.extend(scopes, opt_extraScopes);
+    goog.array.removeDuplicates(scopes);
+  }
+  ee.data.authClientId_ = clientId;
+  ee.data.authScopes_ = scopes;
+
+  var tokenObject = {
+    'token_type': tokenType,
+    'access_token': accessToken,
+    'state': scopes.join(' '),
+    'expires_in': expiresIn
+  };
+  ee.data.handleAuthResult_(undefined, undefined, tokenObject);
+
+  if (opt_updateAuthLibrary === false) {
+    if (opt_callback) opt_callback();
   } else {
-    // The library is not loaded; load it now.
-    var callbackName = goog.now().toString(36);
-    while (callbackName in goog.global) callbackName += '_';
-    goog.global[callbackName] = function() {
-      delete goog.global[callbackName];
-      ee.data.refreshAuthToken_(success, opt_error);
-    };
-    goog.net.jsloader.load(
-        ee.data.AUTH_LIBRARY_URL_ + '?onload=' + callbackName);
+    ee.data.ensureAuthLibLoaded_(function() {
+      goog.global['gapi']['auth']['setToken'](tokenObject);
+      if (opt_callback) opt_callback();
+    });
   }
 };
 
@@ -248,6 +333,20 @@ ee.data.authenticate = function(clientId, success, opt_error, opt_extraScopes) {
 ee.data.setDeadline = function(milliseconds) {
   ee.data.deadlineMs_ = milliseconds;
 };
+
+
+/**
+ * Sets a function used to transform request parameters.
+ *
+ * @param {?function(!goog.Uri.QueryData, string): !goog.Uri.QueryData}
+ *     augmenter A function used to transform request parameters right
+ *     before they are sent to the server. Takes the URL of the request
+ *     as the second argument.
+ */
+ee.data.setParamAugmenter = function(augmenter) {
+  ee.data.paramAugmenter_ = augmenter || goog.functions.identity;
+};
+goog.exportSymbol('ee.data.setParamAugmenter', ee.data.setParamAugmenter);
 
 
 /**
@@ -275,11 +374,47 @@ ee.data.getTileBaseUrl = function() {
 /**
  * Returns the current XSRF token.
  *
- * @return {string?} A string to pass in the "xsrfToken" parameter of XHRs.
+ * @return {string?} A string to pass in the X-XSRF-Token header of XHRs.
  * @export
  */
 ee.data.getXsrfToken = function() {
   return ee.data.xsrfToken_;
+};
+
+
+/**
+ * Returns the current OAuth token; null unless ee.data.setAuthToken() or
+ * ee.data.authorize() previously suceeded.
+ *
+ * @return {?string} The string to pass in the Authorization header of XHRs.
+ * @export
+ */
+ee.data.getAuthToken = function() {
+  return ee.data.authToken_;
+};
+
+
+/**
+ * Returns the current OAuth client ID; null unless ee.data.setAuthToken() or
+ * ee.data.authorize() previously suceeded.
+ *
+ * @return {?string} The OAuth2 client ID for client-side authentication.
+ * @export
+ */
+ee.data.getAuthClientId = function() {
+  return ee.data.authClientId_;
+};
+
+
+/**
+ * Returns the current OAuth scopes; empty unless ee.data.setAuthToken() or
+ * ee.data.authorize() previously suceeded.
+ *
+ * @return {!Array<string>} The OAuth2 scopes for client-side authentication.
+ * @export
+ */
+ee.data.getAuthScopes = function() {
+  return ee.data.authScopes_;
 };
 
 
@@ -290,14 +425,9 @@ ee.data.getXsrfToken = function() {
  * @param {function(Object, string=)=} opt_callback An optional callback.
  *     If not supplied, the call is made synchronously.
  * @return {?Object} The value call results, or null if a callback is specified.
- * @deprecated Use ee.data.getValue().
  * @export
  */
 ee.data.getInfo = function(id, opt_callback) {
-  if (goog.global.console && goog.global.console.error) {
-    goog.global.console.error(
-        'ee.data.getInfo is DEPRECATED. Use ee.data.getValue() instead.');
-  }
   return ee.data.send_('/info',
                        new goog.Uri.QueryData().add('id', id),
                        opt_callback);
@@ -328,8 +458,8 @@ ee.data.getList = function(params, opt_callback) {
 
 /**
  * Get a Map ID for a given asset
- * @param {Object} params An object containing visualization
- *     options with the following possible values:
+ * @param {ee.data.ImageVisualizationParameters} params
+ *     The visualization parameters. For Images and ImageCollections:
  *       - image (JSON string) The image to render.
  *       - version (number) Version number of image (or latest).
  *       - bands (comma-seprated strings) Comma-delimited list of
@@ -346,6 +476,7 @@ ee.data.getList = function(params, opt_callback) {
  *             factor (or one per band)
  *       - palette (comma-separated strings) List of CSS-style color
  *             strings (single-band previews only).
+ *       - opacity (number) a number between 0 and 1 for opacity.
  *       - format (string) Either "jpg" or "png".
  * @param {function(ee.data.RawMapId, string=)=} opt_callback
  *     An optional callback. If not supplied, the call is made synchronously.
@@ -354,7 +485,8 @@ ee.data.getList = function(params, opt_callback) {
  * @export
  */
 ee.data.getMapId = function(params, opt_callback) {
-  params = goog.object.clone(params);
+  params = /** @type {ee.data.ImageVisualizationParameters} */ (
+      goog.object.clone(params));
   return /** @type {?ee.data.RawMapId} */ (
       ee.data.send_('/mapid', ee.data.makeRequest_(params), opt_callback));
 };
@@ -398,7 +530,7 @@ ee.data.getValue = function(params, opt_callback) {
 
 /**
  * Get a Thumbnail Id for a given asset.
- * @param {Object} params Parameters identical to those for the vizOptions for
+ * @param {Object} params Parameters identical to those for the visParams for
  *     getMapId with the following additions:
  *       - size (a number or pair of numbers in format WIDTHxHEIGHT) Maximum
  *             dimensions of the thumbnail to render, in pixels. If only one
@@ -902,17 +1034,12 @@ ee.data.send_ = function(path, params, opt_callback, opt_method) {
     headers['Authorization'] = ee.data.authToken_;
   }
 
+  // Apply any custom param augmentation.
+  params = ee.data.paramAugmenter_(params || new goog.Uri.QueryData(), path);
+
   // XSRF protection for a server-side API proxy.
   if (goog.isDefAndNotNull(ee.data.xsrfToken_)) {
-    if (method == 'GET') {
-      path += goog.string.contains(path, '?') ? '&' : '?';
-      path += 'xsrfToken=' + ee.data.xsrfToken_;
-    } else {
-      if (!params) {
-        params = new goog.Uri.QueryData();
-      }
-      params.add('xsrfToken', ee.data.xsrfToken_);
-    }
+    headers['X-XSRF-Token'] = ee.data.xsrfToken_;
   }
 
   // Handle processing and dispatching a callback response.
@@ -1008,15 +1135,47 @@ ee.data.send_ = function(path, params, opt_callback, opt_method) {
 
 
 /**
+ * Ensures that the Google API Client Library for JavaScript is loaded.
+ * @param {function()} callback The function to call when the library is ready.
+ * @private
+ */
+ee.data.ensureAuthLibLoaded_ = function(callback) {
+  var done = function() {
+    // Speed up auth request by using CORS instead of an iframe.
+    goog.global['gapi']['config']['update']('client/cors', true);
+    callback();
+  };
+  if (goog.isObject(goog.global['gapi']) &&
+      goog.isObject(goog.global['gapi']['auth']) &&
+      goog.isFunction(goog.global['gapi']['auth']['authorize'])) {
+    done();
+  } else {
+    // The library is not loaded; load it now.
+    var callbackName = goog.now().toString(36);
+    while (callbackName in goog.global) callbackName += '_';
+    goog.global[callbackName] = function() {
+      delete goog.global[callbackName];
+      done();
+    };
+    goog.net.jsloader.load(
+        ee.data.AUTH_LIBRARY_URL_ + '?onload=' + callbackName);
+  }
+};
+
+
+/**
  * Retrieves a new OAuth2 token for the currently configured ID and scopes.
  *
  * @param {function()=} opt_success The function to call if token refresh
  *     succeeds.
  * @param {function(string)=} opt_error The function to call if token refresh
  *     fails, passing the error message.
+ * @param {function()=} opt_onImmediateFailed The function to call if
+ *     automatic behind-the-scenes authentication fails.
  * @private
  */
-ee.data.refreshAuthToken_ = function(opt_success, opt_error) {
+ee.data.refreshAuthToken_ = function(
+    opt_success, opt_error, opt_onImmediateFailed) {
   // Set up auth options.
   var authArgs = {
     'client_id': ee.data.authClientId_,
@@ -1024,32 +1183,42 @@ ee.data.refreshAuthToken_ = function(opt_success, opt_error) {
     'scope': ee.data.authScopes_.join(' ')
   };
 
-  // A function to run when we get the authorization result.
-  var done = function(result) {
-    if (result['access_token']) {
-      ee.data.authToken_ = result['token_type'] + ' ' + result['access_token'];
-      // Set up a refresh timer. This is necessary because we cannot refresh
-      // synchronously, but since we want to allow synchronous API requests,
-      // something must ensure that the auth token is always valid.
-      setTimeout(ee.data.refreshAuthToken_, result['expires_in'] * 1000 / 2);
-      if (opt_success) opt_success();
-    } else if (opt_error) {
-      opt_error(result['error'] || 'Unknown error.');
-    }
-  };
-
   // Start the authorization flow, first trying immediate mode, which tries to
   // get the token behind the scenes, with no UI shown.
-  var authorize = goog.global['gapi']['auth']['authorize'];
-  authorize(authArgs, function(result) {
-    if (result['error'] == 'immediate_failed') {
-      // Could not auth invisibly. Auth using a dialog.
-      authArgs['immediate'] = false;
-      authorize(authArgs, done);
+  goog.global['gapi']['auth']['authorize'](authArgs, function(result) {
+    if (result['error'] == 'immediate_failed' && opt_onImmediateFailed) {
+      opt_onImmediateFailed();
     } else {
-      done(result);
+      ee.data.handleAuthResult_(opt_success, opt_error, result);
     }
   });
+};
+
+
+/**
+ * Handles the result of gapi.auth.authorize(), filling ee.data.authToken_ on
+ * success and setting up a refresh timeout.
+ *
+ * @param {function()|undefined} success The function to call if token refresh
+ *     succeeds.
+ * @param {function(string)|undefined} error The function to call if auth fails,
+ *     passing the error message.
+ * @param {Object} result The result object produced by gapi.auth.authorize().
+ * @private
+ */
+ee.data.handleAuthResult_ = function(success, error, result) {
+  if (result['access_token']) {
+    ee.data.authToken_ = result['token_type'] + ' ' + result['access_token'];
+    // Set up a refresh timer. This is necessary because we cannot refresh
+    // synchronously, but since we want to allow synchronous API requests,
+    // something must ensure that the auth token is always valid.
+    if (isFinite(result['expires_in'])) {
+      setTimeout(ee.data.refreshAuthToken_, result['expires_in'] * 1000 / 2);
+    }
+    if (success) success();
+  } else if (error) {
+    error(result['error'] || 'Unknown error.');
+  }
 };
 
 
@@ -1085,6 +1254,7 @@ ee.data.setupMockSend = function(opt_calls) {
   // If it's an object it has fields specifying more details.
   // If there's nothing set for this url, throw.
   function getResponse(url, method, data) {
+    url = url.replace(ee.data.apiBaseUrl_, '');
     var response;
     if (url in calls) {
       response = calls[url];
@@ -1238,6 +1408,16 @@ ee.data.FeatureCollectionDescription;
 
 
 /**
+ * An object describing ee.Feature visualization parameters. Color is
+ * a 6-character hex string in the RRGGBB format.
+ * @typedef {{
+ *   color: (string|undefined)
+ * }}
+ */
+ee.data.FeatureVisualizationParameters;
+
+
+/**
  * An object that depicts a GME Project that the user may export to with
  * attribution ids for each project.
  * @typedef {{
@@ -1307,6 +1487,24 @@ ee.data.ImageCollectionDescription;
  * }}
  */
 ee.data.ImageDescription;
+
+
+/**
+ * An object describing ee.Image visualization parameters. See ee.data.getMapId.
+ * @typedef {{
+ *   image: ee.Image,
+ *   bands: (string|Array<string>|undefined),
+ *   gain: (number|Array<number>|undefined),
+ *   bias: (number|Array<number>|undefined),
+ *   min: (number|Array<number>|undefined),
+ *   max: (number|Array<number>|undefined),
+ *   gamma: (number|Array<number>|undefined),
+ *   palette: (string|Array<string>|undefined),
+ *   opacity: (number|undefined),
+ *   format: (string|undefined)
+ * }}
+ */
+ee.data.ImageVisualizationParameters;
 
 
 /**

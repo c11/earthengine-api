@@ -85,9 +85,10 @@ ee.Collection.prototype.limit = function(max, opt_property, opt_ascending) {
 };
 /**
  * @param {function ((Object|null)): (Object|null)} algorithm
+ * @param {boolean=} opt_dropNulls
  * @return {(ee.Collection|null)}
  */
-ee.Collection.prototype.map = function(algorithm) {
+ee.Collection.prototype.map = function(algorithm, opt_dropNulls) {
 };
 /**
  * @param {string} property
@@ -97,6 +98,13 @@ ee.Collection.prototype.map = function(algorithm) {
 ee.Collection.prototype.sort = function(property, opt_ascending) {
 };
 ee.ComputedObject;
+/**
+ * @param {(Function|null)} func
+ * @param {...*} var_args
+ * @return {(ee.ComputedObject|null)}
+ */
+ee.ComputedObject.prototype.aside = function(func, var_args) {
+};
 /**
  * @param {function (?, string=): ?=} opt_callback
  * @return {*}
@@ -545,7 +553,7 @@ ee.Function.prototype.call = function(var_args) {
 };
 /**
  * @param {(Object|null)} geoJson
- * @param {(String|null)=} opt_proj
+ * @param {(ee.Projection|null)=} opt_proj
  * @param {boolean=} opt_geodesic
  * @return {?}
  * @extends {ee.ComputedObject}
@@ -554,72 +562,88 @@ ee.Function.prototype.call = function(var_args) {
 ee.Geometry = function(geoJson, opt_proj, opt_geodesic) {
 };
 /**
- * @param {(Array<Array<number>>|number)} coordinates
+ * @param {(Array|null)} coords
+ * @param {(ee.Projection|null)=} opt_proj
+ * @param {boolean=} opt_geodesic
+ * @param {(ee.ErrorMargin|null)=} opt_maxError
  * @return {?}
  * @extends {ee.Geometry}
  * @constructor
  */
-ee.Geometry.LineString = function(coordinates) {
+ee.Geometry.LineString = function(coords, opt_proj, opt_geodesic, opt_maxError) {
 };
 /**
- * @param {(Array<Array<number>>|number)} coordinates
+ * @param {(Array|null)} coords
+ * @param {(ee.Projection|null)=} opt_proj
+ * @param {boolean=} opt_geodesic
+ * @param {(ee.ErrorMargin|null)=} opt_maxError
  * @return {?}
  * @extends {ee.Geometry}
  * @constructor
  */
-ee.Geometry.LinearRing = function(coordinates) {
+ee.Geometry.LinearRing = function(coords, opt_proj, opt_geodesic, opt_maxError) {
 };
 /**
- * @param {(Array<Array<Array<number>>>|number)} coordinates
+ * @param {(Array|null)} coords
+ * @param {(ee.Projection|null)=} opt_proj
+ * @param {boolean=} opt_geodesic
+ * @param {(ee.ErrorMargin|null)=} opt_maxError
  * @return {?}
  * @extends {ee.Geometry}
  * @constructor
  */
-ee.Geometry.MultiLineString = function(coordinates) {
+ee.Geometry.MultiLineString = function(coords, opt_proj, opt_geodesic, opt_maxError) {
 };
 /**
- * @param {(Array<Array<number>>|number)} coordinates
+ * @param {(Array|null)} coords
+ * @param {(ee.Projection|null)=} opt_proj
  * @return {?}
  * @extends {ee.Geometry}
  * @constructor
  */
-ee.Geometry.MultiPoint = function(coordinates) {
+ee.Geometry.MultiPoint = function(coords, opt_proj) {
 };
 /**
- * @param {(Array<Array<Array<Array<number>>>>|number)} coordinates
+ * @param {(Array|null)} coords
+ * @param {(ee.Projection|null)=} opt_proj
+ * @param {boolean=} opt_geodesic
+ * @param {(ee.ErrorMargin|null)=} opt_maxError
  * @return {?}
  * @extends {ee.Geometry}
  * @constructor
  */
-ee.Geometry.MultiPolygon = function(coordinates) {
+ee.Geometry.MultiPolygon = function(coords, opt_proj, opt_geodesic, opt_maxError) {
 };
 /**
- * @param {(Array<number>|null|number)} coordsOrLon
- * @param {number=} opt_lat
+ * @param {Array<number>} coords
+ * @param {(ee.Projection|null)=} opt_proj
  * @return {?}
  * @extends {ee.Geometry}
  * @constructor
  */
-ee.Geometry.Point = function(coordsOrLon, opt_lat) {
+ee.Geometry.Point = function(coords, opt_proj) {
 };
 /**
- * @param {(Array<Array<Array<number>>>|number)} coordinates
+ * @param {(Array|null)} coords
+ * @param {(ee.Projection|null)=} opt_proj
+ * @param {boolean=} opt_geodesic
+ * @param {(ee.ErrorMargin|null)=} opt_maxError
  * @return {?}
  * @extends {ee.Geometry}
  * @constructor
  */
-ee.Geometry.Polygon = function(coordinates) {
+ee.Geometry.Polygon = function(coords, opt_proj, opt_geodesic, opt_maxError) {
 };
 /**
- * @param {(Array<number>|null|number)} coordsOrLon1
- * @param {number=} opt_lat1
- * @param {number=} opt_lon2
- * @param {number=} opt_lat2
+ * @param {(Array|null)} coords
+ * @param {(ee.Projection|null)=} opt_proj
+ * @param {boolean=} opt_geodesic
+ * @param {(ee.ErrorMargin|null)=} opt_maxError
  * @return {?}
  * @extends {ee.Geometry}
  * @constructor
  */
-ee.Geometry.Rectangle = function(coordsOrLon1, opt_lat1, opt_lon2, opt_lat2) {
+ee.Geometry.Rectangle = function(coords, opt_proj, opt_geodesic, opt_maxError) {
 };
 /**
  * @return {string}
@@ -677,7 +701,7 @@ ee.Image.prototype.getDownloadURL = function(params, opt_callback) {
 ee.Image.prototype.getInfo = function(opt_callback) {
 };
 /**
- * @param {(Object|null)=} opt_visParams
+ * @param {{bands: (Array<string>|null|string|undefined), bias: (Array<number>|null|number|undefined), format: (string|undefined), gain: (Array<number>|null|number|undefined), gamma: (Array<number>|null|number|undefined), image: (ee.Image|null), max: (Array<number>|null|number|undefined), min: (Array<number>|null|number|undefined), opacity: (number|undefined), palette: (Array<string>|null|string|undefined)}=} opt_visParams
  * @param {function ((Object|null), string=): ?=} opt_callback
  * @return {(undefined|{image: (ee.Image|null), mapid: string, token: string})}
  */
@@ -689,6 +713,12 @@ ee.Image.prototype.getMap = function(opt_visParams, opt_callback) {
  * @return {(string|undefined)}
  */
 ee.Image.prototype.getThumbURL = function(params, opt_callback) {
+};
+/**
+ * @param {...(Object|null|string)} var_args
+ * @return {(ee.Image|null)}
+ */
+ee.Image.prototype.rename = function(var_args) {
 };
 /**
  * @param {...*} var_args
@@ -745,7 +775,24 @@ ee.InitState.READY;
  */
 ee.List = function(list) {
 };
-ee.MapLayerOverlay;
+/**
+ * @param {string} url
+ * @param {string} mapId
+ * @param {string} token
+ * @param {(Object|null)} init
+ * @extends {goog.events.EventTarget}
+ * @implements {goog.disposable.IDisposable}
+ * @implements {goog.events.Listenable}
+ * @constructor
+ */
+ee.MapLayerOverlay = function(url, mapId, token, init) {
+};
+/**
+ * @param {function ((ee.TileEvent|null)): ?} callback
+ * @return {Object}
+ */
+ee.MapLayerOverlay.prototype.addTileCallback = function(callback) {
+};
 /**
  * @param {(google.maps.Point|null)} coord
  * @param {number} zoom
@@ -761,10 +808,24 @@ ee.MapLayerOverlay.prototype.getTile = function(coord, zoom, ownerDocument) {
 ee.MapLayerOverlay.prototype.releaseTile = function(tileDiv) {
 };
 /**
+ * @param {Object} callbackId
+ * @return {undefined}
+ */
+ee.MapLayerOverlay.prototype.removeTileCallback = function(callbackId) {
+};
+/**
  * @param {number} opacity
  * @return {undefined}
  */
 ee.MapLayerOverlay.prototype.setOpacity = function(opacity) {
+};
+/**
+ * @extends {goog.events.EventTarget}
+ * @implements {goog.disposable.IDisposable}
+ * @implements {goog.events.Listenable}
+ * @constructor
+ */
+ee.MapTileManager = function() {
 };
 ee.Number;
 /**
@@ -816,9 +877,17 @@ ee.data;
  * @param {function (): ?} success
  * @param {function (string): ?=} opt_error
  * @param {Array<string>=} opt_extraScopes
+ * @param {function (): ?=} opt_onImmediateFailed
  * @return {undefined}
  */
-ee.data.authenticate = function(clientId, success, opt_error, opt_extraScopes) {
+ee.data.authenticate = function(clientId, success, opt_error, opt_extraScopes, opt_onImmediateFailed) {
+};
+/**
+ * @param {function (): ?=} opt_success
+ * @param {function (string): ?=} opt_error
+ * @return {undefined}
+ */
+ee.data.authenticateViaPopup = function(opt_success, opt_error) {
 };
 /**
  * @param {string} taskId
@@ -870,6 +939,21 @@ ee.data.getAssetAcl = function(assetId, opt_callback) {
 ee.data.getAssetRoots = function(opt_callback) {
 };
 /**
+ * @return {(null|string)}
+ */
+ee.data.getAuthClientId = function() {
+};
+/**
+ * @return {Array<string>}
+ */
+ee.data.getAuthScopes = function() {
+};
+/**
+ * @return {(null|string)}
+ */
+ee.data.getAuthToken = function() {
+};
+/**
  * @param {(Object|null)} params
  * @param {function ({docid: string, token: string}, string=): ?=} opt_callback
  * @return {(ee.data.DownloadId|null)}
@@ -891,7 +975,7 @@ ee.data.getInfo = function(id, opt_callback) {
 ee.data.getList = function(params, opt_callback) {
 };
 /**
- * @param {(Object|null)} params
+ * @param {{bands: (Array<string>|null|string|undefined), bias: (Array<number>|null|number|undefined), format: (string|undefined), gain: (Array<number>|null|number|undefined), gamma: (Array<number>|null|number|undefined), image: (ee.Image|null), max: (Array<number>|null|number|undefined), min: (Array<number>|null|number|undefined), opacity: (number|undefined), palette: (Array<string>|null|string|undefined)}} params
  * @param {function ({mapid: string, token: string}, string=): ?=} opt_callback
  * @return {(ee.data.RawMapId|null)}
  */
@@ -992,10 +1076,28 @@ ee.data.prepareValue = function(taskId, params, opt_callback) {
 ee.data.setAssetAcl = function(assetId, aclUpdate, opt_callback) {
 };
 /**
+ * @param {string} clientId
+ * @param {string} tokenType
+ * @param {string} accessToken
+ * @param {number} expiresIn
+ * @param {Array<string>=} opt_extraScopes
+ * @param {function (): ?=} opt_callback
+ * @param {boolean=} opt_updateAuthLibrary
+ * @return {undefined}
+ */
+ee.data.setAuthToken = function(clientId, tokenType, accessToken, expiresIn, opt_extraScopes, opt_callback, opt_updateAuthLibrary) {
+};
+/**
  * @param {number} milliseconds
  * @return {undefined}
  */
 ee.data.setDeadline = function(milliseconds) {
+};
+/**
+ * @param {(function (goog.Uri.QueryData, string): goog.Uri.QueryData|null)} augmenter
+ * @return {undefined}
+ */
+ee.data.setParamAugmenter = function(augmenter) {
 };
 /**
  * @param {string} taskId

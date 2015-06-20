@@ -1,8 +1,10 @@
 goog.provide('ee.MapLayerOverlay');
+goog.provide('ee.TileEvent');
 
 goog.require('ee.MapTileManager');
 goog.require('goog.array');
 goog.require('goog.dom');
+goog.require('goog.events');
 goog.require('goog.events.Event');
 goog.require('goog.events.EventTarget');
 goog.require('goog.events.EventType');
@@ -24,6 +26,7 @@ goog.require('goog.style');
  *     google.maps.ImageMapTypeOptions object.
  * @constructor
  * @extends {goog.events.EventTarget}
+ * @export
  * @ignore
  */
 ee.MapLayerOverlay = function(url, mapId, token, init) {
@@ -41,6 +44,7 @@ ee.MapLayerOverlay = function(url, mapId, token, init) {
   }
   this.tileSize = init.tileSize || new google.maps.Size(256, 256);
   this.isPng = goog.isDef(init.isPng) ? init.isPng : true;
+  this.name = init.name;
 
   /**
    * Array representing the set of tiles that are currently being
@@ -81,11 +85,36 @@ ee.MapLayerOverlay.EventType = {
 
 
 /**
+ * Adds a callback to be fired each time a tile is loaded.
+ * @param {function(ee.TileEvent)} callback The function to call when a
+ *     tile has loaded.
+ * @return {!Object} An ID which can be passed to removeTileCallback() to
+ *     remove the callback.
+ * @export
+ */
+ee.MapLayerOverlay.prototype.addTileCallback = function(callback) {
+  return goog.events.listen(
+      this, ee.MapLayerOverlay.EventType.TILE_LOADED, callback);
+};
+
+
+/**
+ * Removes the callback with the given ID.
+ * @param {!Object} callbackId The ID returned by addTileLoaded()
+ *     when the callback was registered.
+ * @export
+ */
+ee.MapLayerOverlay.prototype.removeTileCallback = function(callbackId) {
+  goog.events.unlistenByKey(/** @type {goog.events.Key} */ (callbackId));
+};
+
+
+/**
  * Send an event about a change in the number of outstanding tiles.
  * @private
  */
 ee.MapLayerOverlay.prototype.dispatchTileEvent_ = function() {
-  this.dispatchEvent(new ee.TileEvent_(this.tilesLoading_.length));
+  this.dispatchEvent(new ee.TileEvent(this.tilesLoading_.length));
 };
 
 
@@ -240,11 +269,10 @@ ee.MapLayerOverlay.prototype.handleImageCompleted_ = function(
  * An event contaning the information about the tile status
  * @param {number} count The number of outstanding tile requests.
  * @constructor
- * @private
  * @extends {goog.events.Event}
  */
-ee.TileEvent_ = function(count) {
+ee.TileEvent = function(count) {
   goog.events.Event.call(this, ee.MapLayerOverlay.EventType.TILE_LOADED);
   this.count = count;
 };
-goog.inherits(ee.TileEvent_, goog.events.Event);
+goog.inherits(ee.TileEvent, goog.events.Event);

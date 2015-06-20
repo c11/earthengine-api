@@ -152,8 +152,8 @@ ee.Image.prototype.getInfo = function(opt_callback) {
  * An imperative function that returns a map id and token, suitable for
  * generating a Map overlay.
  *
- * @param {Object?=} opt_visParams The visualization parameters.
- *     See ee.data.getMapId.
+ * @param {ee.data.ImageVisualizationParameters=} opt_visParams
+ *     The visualization parameters.
  * @param {function(Object, string=)=} opt_callback An async callback.
  * @return {ee.data.MapId|undefined} An object containing a mapid string, an
  *     access token plus this object, or an error message. Or undefined if a
@@ -161,7 +161,8 @@ ee.Image.prototype.getInfo = function(opt_callback) {
  * @export
  */
 ee.Image.prototype.getMap = function(opt_visParams, opt_callback) {
-  var request = opt_visParams ? goog.object.clone(opt_visParams) : {};
+  var request = /** @type {ee.data.ImageVisualizationParameters} */ (
+      opt_visParams ? goog.object.clone(opt_visParams) : {});
   request['image'] = this.serialize();
 
   if (opt_callback) {
@@ -235,7 +236,7 @@ ee.Image.prototype.getDownloadURL = function(params, opt_callback) {
 /**
  * Get a thumbnail URL for this image.
  * @param {Object} params Parameters identical to getMapId, plus, optionally:
- *   - size (a number or pair of numbers in format WIDTHxHEIGHT) Maximum
+ *   - dimensions (a number or pair of numbers in format WIDTHxHEIGHT) Maximum
  *         dimensions of the thumbnail to render, in pixels. If only one
  *         number is passed, it is used as the maximum, and the other
  *         dimension is computed by proportional scaling.
@@ -471,6 +472,28 @@ ee.Image.prototype.clip = function(geometry) {
   }
   return /** @type {ee.Image} */(
       ee.ApiFunction._call('Image.clip', this, geometry));
+};
+
+
+/**
+ * Rename the bands of an image.
+ *
+ * @param {...string|Object|Array<string>} var_args The new names for the bands.
+ *    Must match the number of bands in the Image.
+ * @return {ee.Image} The renamed image.
+ * @export
+ */
+ee.Image.prototype.rename = function(var_args) {
+  var names;
+  if (arguments.length == 1 && !ee.Types.isString(arguments[0])) {
+    // An array.
+    names = arguments[0];
+  } else {
+    // Varargs list of strings.
+    names = goog.array.clone(arguments);
+  }
+  return /** @type {ee.Image} */(
+      ee.ApiFunction._call('Image.rename', this, names));
 };
 
 
