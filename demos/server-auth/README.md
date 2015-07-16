@@ -8,16 +8,16 @@ communicates with Google Earth Engine.  Upon successful deployment, you will see
 a webpage with a Google map showing the SRTM DEM zoomed into the east coast of
 Australia.
 
-Download Hello World
---------------------
+Download the demo
+-----------------
 
 Download the Earth Engine API repository from GitHub:
 
     git clone https://github.com/google/earthengine-api.git
 
-Navigate to the Hello World example code:
+Navigate to the Server Auth example code:
 
-    cd ./python/examples/AppEngine/hello-world/
+    cd ./earthengine-api/demos/server-auth
 
 
 Create your own project
@@ -52,17 +52,28 @@ Set up a service account
 Build the app
 -------------
 
-From within the hello-world folder, run:
+On Mac OS X or Linux, from within the `server-auth` folder, run:
 
     . ./build.sh
 
 This script will build the app and fetch all its dependencies.  It will also
 install the [Google Cloud SDK](https://cloud.google.com/sdk/) if necessary.
 
+On Windows, [try this](https://groups.google.com/d/msg/google-earth-engine-developers/aL5ufRsiWlA/s0dvAri0SGoJ).
+
+
+Ensure that a crypto library is installed
+-----------------------------------------
+
+If the following command yields an error, then follow the crypto library
+instructions in the [EE Python client library README](/python/README.md).
+
+    python -c "from oauth2client import crypt"
+
 
 Run the app!
 ------------
 
-From within the hello-world folder, run:
+From within the `server-auth` folder, run:
 
     dev_appserver.py ./
