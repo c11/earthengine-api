@@ -768,7 +768,7 @@ ee.InitState.LOADING;
 ee.InitState.NOT_READY;
 ee.InitState.READY;
 /**
- * @param {(Object|null)} list
+ * @param {(Arguments|NodeList|Object|null)} list
  * @return {?}
  * @extends {ee.ComputedObject}
  * @constructor
@@ -780,12 +780,13 @@ ee.List = function(list) {
  * @param {string} mapId
  * @param {string} token
  * @param {(Object|null)} init
+ * @param {(ee.data.Profiler|null)=} opt_profiler
  * @extends {goog.events.EventTarget}
  * @implements {goog.disposable.IDisposable}
  * @implements {goog.events.Listenable}
  * @constructor
  */
-ee.MapLayerOverlay = function(url, mapId, token, init) {
+ee.MapLayerOverlay = function(url, mapId, token, init, opt_profiler) {
 };
 /**
  * @param {function ((ee.TileEvent|null)): ?} callback
@@ -902,7 +903,7 @@ ee.data.cancelTask = function(taskId, opt_callback) {
 ee.data.clearAuthToken = function() {
 };
 /**
- * @param {string} value
+ * @param {(Object|string)} value
  * @param {string=} opt_path
  * @param {boolean=} opt_force
  * @param {function ((Object|null), string=): ?=} opt_callback
@@ -1093,6 +1094,12 @@ ee.data.setAssetAcl = function(assetId, aclUpdate, opt_callback) {
 ee.data.setAuthToken = function(clientId, tokenType, accessToken, expiresIn, opt_extraScopes, opt_callback, opt_updateAuthLibrary) {
 };
 /**
+ * @param {(function ({client_id: string, immediate: boolean, scope: string}, function ({access_token: string, error: (string|undefined), expires_in: number, token_type: string}): ?): ?|null)} refresher
+ * @return {undefined}
+ */
+ee.data.setAuthTokenRefresher = function(refresher) {
+};
+/**
  * @param {number} milliseconds
  * @return {undefined}
  */
@@ -1106,7 +1113,7 @@ ee.data.setParamAugmenter = function(augmenter) {
 };
 /**
  * @param {string} taskId
- * @param {{bands: (Array<ee.data.Band>|undefined), filesets: Array<ee.data.Fileset>, name: string}} request
+ * @param {{bands: (Array<ee.data.Band>|undefined), id: string, missingData: (ee.data.MissingData|undefined), reductionPolicy: (ee.data.ReductionPolicy|undefined), tilesets: Array<ee.data.Tileset>}} request
  * @param {function ({note: (string|undefined), started: string}, string=): ?=} opt_callback
  * @return {(ee.data.ProcessingResponse|null)}
  */
@@ -1127,6 +1134,14 @@ ee.data.startProcessing = function(taskId, params, opt_callback) {
  * @return {(Array<ee.data.TaskStatus>|null)}
  */
 ee.data.updateTask = function(taskId, action, opt_callback) {
+};
+/**
+ * @param {(function (string): ?|null)} hook
+ * @param {function (): *} body
+ * @param {*=} opt_this
+ * @return {*}
+ */
+ee.data.withProfiling = function(hook, body, opt_this) {
 };
 /**
  * @param {(null|string)=} opt_baseurl
