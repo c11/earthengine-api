@@ -11,6 +11,7 @@ goog.require('ee.Element');
 goog.require('ee.Function');
 goog.require('ee.Geometry');
 goog.require('ee.Types');
+goog.require('ee.arguments');
 goog.require('ee.data');
 goog.require('goog.array');
 goog.require('goog.json');
@@ -161,11 +162,12 @@ ee.Image.prototype.getInfo = function(opt_callback) {
  * @export
  */
 ee.Image.prototype.getMap = function(opt_visParams, opt_callback) {
+  var args = ee.arguments.extract(ee.Image.prototype.getMap, arguments);
   var request = /** @type {ee.data.ImageVisualizationParameters} */ (
-      opt_visParams ? goog.object.clone(opt_visParams) : {});
+      args['visParams'] ? goog.object.clone(args['visParams']) : {});
   request['image'] = this.serialize();
 
-  if (opt_callback) {
+  if (args['callback']) {
     ee.data.getMapId(
         request,
         // Put the image object into the response from getMapId.
@@ -173,7 +175,7 @@ ee.Image.prototype.getMap = function(opt_visParams, opt_callback) {
           if (data) {
             data['image'] = this;
           }
-          opt_callback(data, error);
+          args['callback'](data, error);
         }, this));
   } else {
     var response = ee.data.getMapId(request);
@@ -216,14 +218,16 @@ ee.Image.prototype.getMap = function(opt_visParams, opt_callback) {
  * @export
  */
 ee.Image.prototype.getDownloadURL = function(params, opt_callback) {
-  var request = params ? goog.object.clone(params) : {};
+  var args = ee.arguments.extract(ee.Image.prototype.getDownloadURL, arguments);
+  var request = args['params'] ? goog.object.clone(args['params']) : {};
   request['image'] = this.serialize();
-  if (opt_callback) {
+  if (args['callback']) {
+    var callback = args['callback'];
     ee.data.getDownloadId(request, function(downloadId, error) {
       if (downloadId) {
-        opt_callback(ee.data.makeDownloadUrl(downloadId));
+        callback(ee.data.makeDownloadUrl(downloadId));
       } else {
-        opt_callback(null, error);
+        callback(null, error);
       }
     });
   } else {
@@ -250,7 +254,8 @@ ee.Image.prototype.getDownloadURL = function(params, opt_callback) {
  * @export
  */
 ee.Image.prototype.getThumbURL = function(params, opt_callback) {
-  var request = params ? goog.object.clone(params) : {};
+  var args = ee.arguments.extract(ee.Image.prototype.getThumbURL, arguments);
+  var request = args['params'] ? goog.object.clone(args['params']) : {};
   request['image'] = this.serialize();
   if (request['region']) {
     if (goog.isArray(request['region']) ||
@@ -261,7 +266,7 @@ ee.Image.prototype.getThumbURL = function(params, opt_callback) {
       throw Error('The region parameter must be an array or a GeoJSON object.');
     }
   }
-  if (opt_callback) {
+  if (args['callback']) {
     var callbackWrapper = function(thumbId, opt_error) {
       var thumbUrl = '';
       if (!goog.isDef(opt_error)) {
@@ -271,7 +276,7 @@ ee.Image.prototype.getThumbURL = function(params, opt_callback) {
           opt_error = String(e.message);
         }
       }
-      opt_callback(thumbUrl, opt_error);
+      args['callback'](thumbUrl, opt_error);
     };
     ee.data.getThumbId(request, callbackWrapper);
   } else {
@@ -280,9 +285,10 @@ ee.Image.prototype.getThumbURL = function(params, opt_callback) {
   }
 };
 
-// ///////////////////////////////////////////////////////////////
+
+///////////////////////////////////////////////////////////
 // Static functions that aren't defined by the REST service
-// ///////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////
 
 
 /**
@@ -296,7 +302,10 @@ ee.Image.prototype.getThumbURL = function(params, opt_callback) {
  * @export
  */
 ee.Image.rgb = function(r, g, b) {
-  return ee.Image.combine_([r, g, b], ['vis-red', 'vis-green', 'vis-blue']);
+  var args = ee.arguments.extract(ee.Image.rgb, arguments);
+  return ee.Image.combine_(
+      [args['r'], args['g'], args['b']],
+      ['vis-red', 'vis-green', 'vis-blue']);
 };
 
 
@@ -410,20 +419,24 @@ ee.Image.prototype.select = function(var_args) {
  * @export
  */
 ee.Image.prototype.expression = function(expression, opt_map) {
-  var argName = 'DEFAULT_EXPRESSION_IMAGE';
-  var vars = [argName];
-  var args = goog.object.create(argName, this);
+  var originalArgs =
+      ee.arguments.extract(ee.Image.prototype.expression, arguments);
+
+  var eeArgName = 'DEFAULT_EXPRESSION_IMAGE';
+  var vars = [eeArgName];
+  var eeArgs = goog.object.create(eeArgName, this);
 
   // Add custom arguments, promoting them to Images manually.
-  if (opt_map) {
-    for (var name in opt_map) {
+  if (originalArgs['map']) {
+    var map = originalArgs['map'];
+    for (var name in map) {
       vars.push(name);
-      args[name] = new ee.Image(opt_map[name]);
+      eeArgs[name] = new ee.Image(map[name]);
     }
   }
 
   var body = ee.ApiFunction._call('Image.parseExpression',
-      expression, argName, vars);
+      originalArgs['expression'], eeArgName, vars);
 
   // Reinterpret the body call as an ee.Function by hand-generating the
   // signature so the computed function knows its input and output types.
@@ -450,7 +463,7 @@ ee.Image.prototype.expression = function(expression, opt_map) {
   };
 
   // Perform the call.
-  return /** @type {!ee.Image} */(func.apply(args));
+  return /** @type {!ee.Image} */ (func.apply(eeArgs));
 };
 
 
