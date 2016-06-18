@@ -1,3 +1,7 @@
+/**
+ * @fileoverview Generated externs.
+ * @externs
+ */
 var ctor$$2;
 ctor$$2.prototype.then;
 var ee;
@@ -104,6 +108,12 @@ ee.ComputedObject;
  * @return {(ee.ComputedObject|null)}
  */
 ee.ComputedObject.prototype.aside = function(func, var_args) {
+};
+/**
+ * @param {!function (?, string=): ?} callback
+ * @return {undefined}
+ */
+ee.ComputedObject.prototype.evaluate = function(callback) {
 };
 /**
  * @param {!function (?, string=): ?=} opt_callback
@@ -956,6 +966,13 @@ ee.data.getApiBaseUrl = function() {
  * @return {(ee.data.AssetAcl|null)}
  */
 ee.data.getAssetAcl = function(assetId, opt_callback) {
+};
+/**
+ * @param {string} rootId
+ * @param {!function ({all_users_can_read: (boolean|undefined), owners: Array<string>, readers: Array<string>, writers: Array<string>}, string=): ?=} opt_callback
+ * @return {(ee.data.AssetQuotaDetails|null)}
+ */
+ee.data.getAssetRootQuota = function(rootId, opt_callback) {
 };
 /**
  * @param {!function (Array<ee.data.FolderDescription>, string=): ?=} opt_callback

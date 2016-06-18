@@ -11,7 +11,9 @@ goog.provide('ee.data.AlgorithmsRegistry');
 goog.provide('ee.data.AssetAcl');
 goog.provide('ee.data.AssetAclUpdate');
 goog.provide('ee.data.AssetDescription');
+goog.provide('ee.data.AssetDetailsProperty');
 goog.provide('ee.data.AssetList');
+goog.provide('ee.data.AssetQuotaDetails');
 goog.provide('ee.data.AssetType');
 goog.provide('ee.data.AuthArgs');
 goog.provide('ee.data.AuthResponse');
@@ -432,7 +434,8 @@ ee.data.getAlgorithms = function(opt_callback) {
 /**
  * Get a Map ID for a given asset
  * @param {ee.data.ImageVisualizationParameters} params
- *     The visualization parameters. For Images and ImageCollections:
+ *     The visualization parameters as a (client-side) JavaScript object.
+ *     For Images and ImageCollections:
  *       - image (JSON string) The image to render.
  *       - version (number) Version number of image (or latest).
  *       - bands (comma-seprated strings) Comma-delimited list of
@@ -552,8 +555,8 @@ ee.data.makeThumbUrl = function(id) {
  *     + id: the name of the band, a string, required.
  *     + crs: an optional CRS string defining the band projection.
  *     + crs_transform: an optional array of 6 numbers specifying an affine
- *           transform from the specified CRS, in the order: xScale, yShearing,
- *           xShearing, yScale, xTranslation and yTranslation.
+ *           transform from the specified CRS, in the order: xScale, xShearing,
+ *           xTranslation, yShearing, yScale, and yTranslation.
  *     + dimensions: an optional array of two integers defining the width and
  *           height to which the band is cropped.
  *     + scale: an optional number, specifying the scale in meters of the band;
@@ -1079,6 +1082,30 @@ ee.data.setAssetProperties = function(assetId, properties, opt_callback) {
 goog.exportSymbol('ee.data.setAssetProperties', ee.data.setAssetProperties);
 
 
+/**
+ * Returns quota usage details for the asset root with the given ID.
+ *
+ * Usage notes:
+ *
+ *   - The id *must* be a root folder like "users/foo" (not "users/foo/bar").
+ *   - The authenticated user must own the asset root to see its quota usage.
+ *
+ * @param {string} rootId The ID of the asset root to check, e.g. "users/foo".
+ * @param {function(ee.data.AssetAcl, string=)=} opt_callback
+ *     An optional callback. If not supplied, the call is made synchronously.
+ * @return {?ee.data.AssetQuotaDetails} The asset root's quota usage details.
+ *     Null if a callback is specified.
+ */
+ee.data.getAssetRootQuota = function(rootId, opt_callback) {
+  return /** @type {?ee.data.AssetQuotaDetails} */ (ee.data.send_(
+      '/quota',
+      ee.data.makeRequest_({'id': rootId}),
+      opt_callback,
+      'GET'));
+};
+goog.exportSymbol('ee.data.getAssetRootQuota', ee.data.getAssetRootQuota);
+
+
 ////////////////////////////////////////////////////////////////////////////////
 //                               Types and enums.                             //
 ////////////////////////////////////////////////////////////////////////////////
@@ -1107,6 +1134,27 @@ ee.data.ExportType = {
 ee.data.SystemTimeProperty = {
   'START': 'system:time_start',
   'END': 'system:time_end'
+};
+
+
+/** @const {string} The name of the EE system asset size property. */
+ee.data.SYSTEM_ASSET_SIZE_PROPERTY = 'system:asset_size';
+
+
+/**
+ * @enum {string} The names of the editable EE system asset properties.
+ *   The title property contains the human readable name of the asset, e.g.
+ *     "My Map Asset 2016".
+ *   The description property contains an HTML description of the asset.
+ *   The provider_url contains a url to more info about the asset/provider,
+ *     e.g. "http://www.providerwebsite.com"
+ *   The tags property contains a list of tags relevant to the asset, e.g.
+ *     "landcover, global" etc.
+ */
+ee.data.AssetDetailsProperty = {
+  TITLE: 'system:title',
+  DESCRIPTION: 'system:description',
+  TAGS: 'system:tags'
 };
 
 
@@ -1150,6 +1198,17 @@ ee.data.AssetAcl;
  * }}
  */
 ee.data.AssetAclUpdate;
+
+
+/**
+ * Details about an asset root folder's quota usage and limits.
+ * Asset size values are in bytes. Negative limit means "unlimited".
+ * @typedef {{
+ *   asset_count: {usage: number, limit: number},
+ *   asset_size: {usage: number, limit: number}
+ * }}
+ */
+ee.data.AssetQuotaDetails;
 
 
 /**
@@ -1412,7 +1471,8 @@ ee.data.AbstractTaskConfig;
  *   driveFolder: (undefined|string),
  *   driveFileNamePrefix: (undefined|string),
  *   outputBucket: (undefined|string),
- *   outputPrefix: (undefined|string)
+ *   outputPrefix: (undefined|string),
+ *   pyramidingPolicy: (undefined|string)
  * }}
  */
 ee.data.ImageTaskConfig;

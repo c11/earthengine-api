@@ -156,6 +156,7 @@ ee.Image.prototype.getInfo = function(opt_callback) {
  * @param {ee.data.ImageVisualizationParameters=} opt_visParams
  *     The visualization parameters.
  * @param {function(Object, string=)=} opt_callback An async callback.
+ *     If not supplied, the call is made synchronously.
  * @return {ee.data.MapId|undefined} An object containing a mapid string, an
  *     access token plus this object, or an error message. Or undefined if a
  *     callback was specified.
@@ -196,7 +197,7 @@ ee.Image.prototype.getMap = function(opt_visParams, opt_callback) {
  *     + crs: an optional CRS string defining the band projection.
  *     + crs_transform: an optional list of 6 numbers specifying an affine
  *           transform from the specified CRS, in row-major order:
- *           [xScale, yShearing, xTranslation, xShearing, yScale, yTranslation]
+ *           [xScale, xShearing, xTranslation, yShearing, yScale, yTranslation]
  *     + dimensions: an optional list of two integers defining the width and
  *           height to which the band is cropped.
  *     + scale: an optional number, specifying the scale in meters of the band;
