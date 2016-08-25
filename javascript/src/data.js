@@ -43,6 +43,7 @@ goog.provide('ee.data.RawMapId');
 goog.provide('ee.data.ReductionPolicy');
 goog.provide('ee.data.ShortAssetDescription');
 goog.provide('ee.data.SystemTimeProperty');
+goog.provide('ee.data.TableDescription');
 goog.provide('ee.data.TableTaskConfig');
 goog.provide('ee.data.TaskListResponse');
 goog.provide('ee.data.TaskStatus');
@@ -508,10 +509,10 @@ ee.data.getValue = function(params, opt_callback) {
  * Get a Thumbnail Id for a given asset.
  * @param {Object} params Parameters identical to those for the visParams for
  *     getMapId with the following additions:
- *       - size (a number or pair of numbers in format WIDTHxHEIGHT) Maximum
- *             dimensions of the thumbnail to render, in pixels. If only one
- *             number is passed, it is used as the maximum, and the other
- *             dimension is computed by proportional scaling.
+ *       - dimensions (a number or pair of numbers in format WIDTHxHEIGHT)
+ *             Maximum dimensions of the thumbnail to render, in pixels. If
+ *             only one number is passed, it is used as the maximum, and
+ *             the other dimension is computed by proportional scaling.
  *       - region (E,S,W,N or GeoJSON) Geospatial region of the image
  *             to render. By default, the whole image.
  *       - format (string) Either 'png' (default) or 'jpg'.
@@ -523,8 +524,8 @@ ee.data.getValue = function(params, opt_callback) {
  */
 ee.data.getThumbId = function(params, opt_callback) {
   params = goog.object.clone(params);
-  if (goog.isArray(params['size'])) {
-    params['size'] = params['size'].join('x');
+  if (goog.isArray(params['dimensions'])) {
+    params['dimensions'] = params['dimensions'].join('x');
   }
   var request = ee.data.makeRequest_(params).add('getid', '1');
   return /** @type {?ee.data.ThumbnailId} */(
@@ -639,9 +640,6 @@ ee.data.makeTableDownloadUrl = function(id) {
  * If hook is not null, enables profiling for all API calls begun during the
  * execution of the body function and call the hook function with all resulting
  * profile IDs. If hook is null, disables profiling (or leaves it disabled).
- *
- * Note: Profiling is not a generally available feature yet. Do not expect this
- * function to be useful.
  *
  * @param {?function(string)} hook
  *     A function to be called whenever there is new profile data available,
@@ -807,7 +805,7 @@ goog.exportSymbol('ee.data.startProcessing', ee.data.startProcessing);
 
 
 /**
- * Creates an asset ingestion task.
+ * Creates an image asset ingestion task.
  *
  * @param {string} taskId ID for the task (obtained using newTaskId).
  * @param {ee.data.IngestionRequest} request The object that describes the
@@ -1111,12 +1109,17 @@ goog.exportSymbol('ee.data.getAssetRootQuota', ee.data.getAssetRootQuota);
 ////////////////////////////////////////////////////////////////////////////////
 
 
-/** @enum {string} The types of assets. */
+/**
+ * The types of assets. Note that the server describes table assets as
+ * feature collections, though they should be described to users as tables.
+ * @enum {string}
+ */
 ee.data.AssetType = {
+  ALGORITHM: 'Algorithm',
+  FOLDER: 'Folder',
   IMAGE: 'Image',
   IMAGE_COLLECTION: 'ImageCollection',
-  FOLDER: 'Folder',
-  ALGORITHM: 'Algorithm',
+  TABLE: 'FeatureCollection',
   UNKNOWN: 'Unknown'
 };
 
@@ -1146,6 +1149,7 @@ ee.data.SYSTEM_ASSET_SIZE_PROPERTY = 'system:asset_size';
  *   The title property contains the human readable name of the asset, e.g.
  *     "My Map Asset 2016".
  *   The description property contains an HTML description of the asset.
+ *     Should be sanitized before being rendered.
  *   The provider_url contains a url to more info about the asset/provider,
  *     e.g. "http://www.providerwebsite.com"
  *   The tags property contains a list of tags relevant to the asset, e.g.
@@ -1156,6 +1160,14 @@ ee.data.AssetDetailsProperty = {
   DESCRIPTION: 'system:description',
   TAGS: 'system:tags'
 };
+
+
+/**
+ * The HTML element names that should be allowed in asset descriptions.
+ * @const {!Array<string>}
+ */
+ee.data.ALLOWED_DESCRIPTION_HTML_ELEMENTS =
+    ['a', 'code', 'em', 'i', 'li', 'ol', 'p', 'strong', 'sub', 'sup', 'ul'];
 
 
 /**
@@ -1226,7 +1238,10 @@ ee.data.FolderDescription;
  * Compatible with GeoJSON. The type field is always "FeatureCollection".
  * @typedef {{
  *   type: string,
- *   features: Array.<ee.data.GeoJSONFeature>
+ *   columns: !Object<string, string>,
+ *   id: (string|undefined),
+ *   features: (!Array<ee.data.GeoJSONFeature>|undefined),
+ *   properties: (!Object|undefined)
  * }}
  */
 ee.data.FeatureCollectionDescription;
@@ -1300,6 +1315,22 @@ ee.data.ImageCollectionDescription;
  * }}
  */
 ee.data.ImageDescription;
+
+
+/**
+ * An object describing a Table asset, as returned by getValue.
+ * Compatible with GeoJSON. The type field is always "FeatureCollection",
+ * which describes the abstract object that wraps the table asset.
+ * @typedef {{
+ *   type: string,
+ *   columns: !Object<string, string>,
+ *   id: (string|undefined),
+ *   features: (!Array<ee.data.GeoJSONFeature>|undefined),
+ *   properties: (!Object|undefined),
+ *   version: (undefined|number)
+ * }}
+ */
+ee.data.TableDescription;
 
 
 /**
@@ -1472,6 +1503,7 @@ ee.data.AbstractTaskConfig;
  *   driveFileNamePrefix: (undefined|string),
  *   outputBucket: (undefined|string),
  *   outputPrefix: (undefined|string),
+ *   assetId: (undefined|string),
  *   pyramidingPolicy: (undefined|string)
  * }}
  */
@@ -1515,7 +1547,8 @@ ee.data.MapTaskConfig;
  *   driveFolder: (undefined|string),
  *   driveFileNamePrefix: (undefined|string),
  *   outputBucket: (undefined|string),
- *   outputPrefix: (undefined|string)
+ *   outputPrefix: (undefined|string),
+ *   assetId: (undefined|string)
  * }}
  */
 ee.data.TableTaskConfig;
@@ -1619,7 +1652,7 @@ ee.data.AssetDescription;
 
 
 /**
- * A request to import an asset. "id" is the destination asset ID
+ * A request to import an image asset. "id" is the destination asset ID
  * (e.g. "users/yourname/assetname"). "tilesets" is the list of source
  * files for the asset, clustered by tile. "properties" is a mapping from
  * metadata property names to values.

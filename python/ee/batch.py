@@ -8,10 +8,13 @@ The function styling uses camelCase to match the JavaScript names.
 
 # pylint: disable=g-bad-name
 
+# pylint: disable=g-bad-import-order
 import json
-import data
-import ee_exception
-import geometry
+import six
+
+from . import data
+from . import ee_exception
+from . import geometry
 
 
 class Task(object):
@@ -388,7 +391,7 @@ class Export(object):
             will be encoded as 'jpg' and tiles with transparency will be
             encoded as 'png'.
         path: The string used as the output's path. A trailing '/'
-            is optional.
+            is optional. Defaults to the task's description.
         writePublicTiles: Whether to write public tiles instead of using the
             bucket's default object ACL. Defaults to true and requires the
             invoker to be an OWNER of bucket.
@@ -412,6 +415,11 @@ class Export(object):
       # _CopyDictFilterNone must be called first because it copies locals to
       # support deprecated arguments.
       config = _CopyDictFilterNone(locals())
+
+      # The path is defaulted before converting to server params so that it
+      # is properly converted into the server parameter 'outputPrefix'.
+      if 'path' not in config:
+        config['path'] = description
 
       _ConvertToServerParams(config, 'image', Task.ExportDestination.GCS)
 
@@ -444,8 +452,8 @@ class Export(object):
         description: Human-readable name of the task.
         config: A dictionary that will be copied and used as parameters
             for the task:
-            - fileFormat: The output format: CSV (default), GeoJSON,
-              KML, or KMZ.
+            - fileFormat: The output format: "CSV" (default), "GeoJSON", "KML",
+              or "KMZ".
             If exporting to Google Drive (default):
             - driveFolder: The name of a unique folder in your Drive
               account to export into. Defaults to the root of the drive.
@@ -480,7 +488,8 @@ class Export(object):
         bucket: The name of a Cloud Storage bucket for the export.
         fileNamePrefix: Cloud Storage object name prefix for the export.
             Defaults to the name of the task.
-        fileFormat: The output format: CSV (default), GeoJSON, KML, or KMZ.
+        fileFormat: The output format: "CSV" (default), "GeoJSON", "KML",
+            or "KMZ".
         **kwargs: Holds other keyword arguments that may have been deprecated
             such as 'outputBucket'.
 
@@ -512,7 +521,8 @@ class Export(object):
             export into. Defaults to the root of the drive.
         fileNamePrefix: The Google Drive filename for the export.
             Defaults to the name of the task.
-        fileFormat: The output format: CSV (default), GeoJSON, KML, or KMZ.
+        fileFormat: The output format: "CSV" (default), "GeoJSON", "KML",
+            or "KMZ".
         **kwargs: Holds other keyword arguments that may have been deprecated
             such as 'driveFolder' and 'driveFileNamePrefix'.
 
@@ -744,7 +754,7 @@ def _GetSerializedRegion(region):
   region_error = ee_exception.EEException(
       'Invalid format for region property. '
       'See Export.image() documentation for more details.')
-  if isinstance(region, basestring):
+  if isinstance(region, six.string_types):
     try:
       region = json.loads(region)
     except:
@@ -761,7 +771,7 @@ def _GetSerializedRegion(region):
 
 def _CopyDictFilterNone(originalDict):
   """Copies a dictionary and filters out None values."""
-  return dict((k, v) for k, v in originalDict.iteritems() if v is not None)
+  return dict((k, v) for k, v in originalDict.items() if v is not None)
 
 
 def _ConvertToServerParams(configDict, eeElementKey, destination):

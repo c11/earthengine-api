@@ -4,7 +4,24 @@
  */
 var ctor$$2;
 ctor$$2.prototype.then;
-var ee;
+/**
+ @const
+ @suppress {const,duplicate}
+ */
+var ee = {};
+/**
+ * @param {string} url
+ * @param {string} mapId
+ * @param {string} token
+ * @param {(Object|null)=} opt_init
+ * @param {(ee.data.Profiler|null)=} opt_profiler
+ * @extends {goog.events.EventTarget}
+ * @implements {goog.disposable.IDisposable}
+ * @implements {goog.events.Listenable}
+ * @constructor
+ */
+ee.AbstractOverlay = function(url, mapId, token, opt_init, opt_profiler) {
+};
 /** @type {{}} */
 ee.Algorithms = {};
 /**
@@ -282,8 +299,8 @@ ee.FeatureCollection = function(args, opt_column) {
 ee.FeatureCollection.prototype.getDownloadURL = function(opt_format, opt_selectors, opt_filename, opt_callback) {
 };
 /**
- * @param {!function ({features: (Array<ee.data.GeoJSONFeature>|null), type: string}, string=): ?=} opt_callback
- * @return {{features: (Array<ee.data.GeoJSONFeature>|null), type: string}}
+ * @param {!function ({columns: Object<string,string>, features: (Array<ee.data.GeoJSONFeature>|undefined), id: (string|undefined), properties: (Object|undefined), type: string}, string=): ?=} opt_callback
+ * @return {{columns: Object<string,string>, features: (Array<ee.data.GeoJSONFeature>|undefined), id: (string|undefined), properties: (Object|undefined), type: string}}
  */
 ee.FeatureCollection.prototype.getInfo = function(opt_callback) {
 };
@@ -543,6 +560,17 @@ ee.Filter.prototype.starts_with = function(var_args) {
 ee.Filter.starts_with = function(name, value) {
 };
 /**
+ * @param {string} url
+ * @param {string} mapId
+ * @param {string} token
+ * @extends {ee.AbstractOverlay}
+ * @implements {goog.disposable.IDisposable}
+ * @implements {goog.events.Listenable}
+ * @constructor
+ */
+ee.FloatTileOverlay = function(url, mapId, token) {
+};
+/**
  * @return {?}
  * @extends {ee.Encodable}
  * @constructor
@@ -795,7 +823,7 @@ ee.List = function(list) {
  * @param {string} token
  * @param {(Object|null)} init
  * @param {(ee.data.Profiler|null)=} opt_profiler
- * @extends {goog.events.EventTarget}
+ * @extends {ee.AbstractOverlay}
  * @implements {goog.disposable.IDisposable}
  * @implements {goog.events.Listenable}
  * @constructor
@@ -809,7 +837,7 @@ ee.MapLayerOverlay = function(url, mapId, token, init, opt_profiler) {
 ee.MapLayerOverlay.prototype.addTileCallback = function(callback) {
 };
 /**
- * @param {(google.maps.Point|null)} coord
+ * @param {!google.maps.Point} coord
  * @param {number} zoom
  * @param {(Node|null)} ownerDocument
  * @return {(Node|null)}
@@ -843,6 +871,15 @@ ee.MapLayerOverlay.prototype.setOpacity = function(opacity) {
 ee.MapTileManager = function() {
 };
 ee.Number;
+/**
+ * @param {string} path
+ * @param {{args: Array<{default: *, name: string, optional: boolean, type: string}>, deprecated: (string|undefined), description: (string|undefined), name: string, returns: string}} signature
+ * @return {?}
+ * @extends {ee.Function}
+ * @constructor
+ */
+ee.SavedFunction = function(path, signature) {
+};
 /**
  * @param {boolean=} opt_isCompound
  * @constructor
@@ -1170,6 +1207,14 @@ ee.data.startIngestion = function(taskId, request, opt_callback) {
  * @return {(ee.data.ProcessingResponse|null)}
  */
 ee.data.startProcessing = function(taskId, params, opt_callback) {
+};
+/**
+ * @param {string} taskId
+ * @param {{id: string, propertie: (Object|undefined), sources: Array<ee.data.FileSource>}} request
+ * @param {!function ({note: (string|undefined), started: string}, string=): ?=} opt_callback
+ * @return {(ee.data.ProcessingResponse|null)}
+ */
+ee.data.startTableIngestion = function(taskId, request, opt_callback) {
 };
 /**
  * @param {(Array<string>|string)} taskId

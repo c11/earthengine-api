@@ -10,12 +10,14 @@ interactive (looping) mode, where the user will be able to run multiple
 commands as in a typical terminal program.
 """
 
+from __future__ import print_function
+
 import argparse
 import sys
 
 import ee
-import commands
-import utils
+from ee.cli import commands
+from ee.cli import utils
 
 
 class CommandDispatcher(commands.Dispatcher):
@@ -60,7 +62,7 @@ def main():
   try:
     dispatcher.run(args, config)
   except ee.EEException as e:
-    print e
+    print(e)
     sys.exit(1)
 
 if __name__ == '__main__':
