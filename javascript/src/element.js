@@ -1,7 +1,6 @@
 /**
  * @fileoverview Base class for Image, Feature and Collection.
  * This class is never intended to be instantiated by the user.
- *
  */
 
 goog.provide('ee.Element');
@@ -12,6 +11,7 @@ goog.require('ee.Types');
 goog.require('goog.array');
 goog.require('goog.object');
 
+goog.requireType('ee.Function');
 
 
 /**
@@ -23,7 +23,7 @@ goog.require('goog.object');
  * @extends {ee.ComputedObject}
  */
 ee.Element = function(func, args, opt_varName) {
-  goog.base(this, func, args, opt_varName);
+  ee.Element.base(this, 'constructor', func, args, opt_varName);
   ee.Element.initialize();
 };
 goog.inherits(ee.Element, ee.ComputedObject);

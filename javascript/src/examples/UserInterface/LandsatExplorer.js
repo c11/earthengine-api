@@ -6,6 +6,9 @@ var app = {};
 
 /** Creates the UI panels. */
 app.createPanels = function() {
+  /* The map to use for this app. */
+  app.map = new ui.Map();
+
   /* The introduction section. */
   app.intro = {
     panel: ui.Panel([
@@ -21,8 +24,8 @@ app.createPanels = function() {
   /* The collection filter controls. */
   app.filters = {
     mapCenter: ui.Checkbox({label: 'Filter to map center', value: true}),
-    startDate: ui.Textbox('YYYY-MM-DD', '2014-02-01'),
-    endDate: ui.Textbox('YYYY-MM-DD', '2014-03-01'),
+    startDate: ui.Textbox('YYYY-MM-DD', '2017-05-01'),
+    endDate: ui.Textbox('YYYY-MM-DD', '2017-09-01'),
     applyButton: ui.Button('Apply filters', app.applyFilters),
     loadingLabel: ui.Label({
       value: 'Loading...',
@@ -34,8 +37,8 @@ app.createPanels = function() {
   app.filters.panel = ui.Panel({
     widgets: [
       ui.Label('1) Select filters', {fontWeight: 'bold'}),
-      ui.Label('Start date', app.HELP_TEXT_STYLE), app.filters.startDate,
-      ui.Label('End date', app.HELP_TEXT_STYLE), app.filters.endDate,
+      ui.Label('Start date', app.HELPER_TEXT_STYLE), app.filters.startDate,
+      ui.Label('End date', app.HELPER_TEXT_STYLE), app.filters.endDate,
       app.filters.mapCenter,
       ui.Panel([
         app.filters.applyButton,
@@ -54,7 +57,7 @@ app.createPanels = function() {
     }),
     // Create a button that centers the map on a given object.
     centerButton: ui.Button('Center on map', function() {
-      Map.centerObject(Map.layers().get(0).get('eeObject'));
+      app.map.centerObject(app.map.layers().get(0).get('eeObject'));
     })
   };
 
@@ -161,7 +164,7 @@ app.createHelpers = function() {
 
     // Filter bounds to the map if the checkbox is marked.
     if (app.filters.mapCenter.getValue()) {
-      filtered = filtered.filterBounds(Map.getCenter());
+      filtered = filtered.filterBounds(app.map.getCenter());
     }
 
     // Set filter variables.
@@ -188,21 +191,21 @@ app.createHelpers = function() {
 
   /** Refreshes the current map layer based on the UI widget states. */
   app.refreshMapLayer = function() {
-    Map.clear();
+    app.map.clear();
     var imageId = app.picker.select.getValue();
     if (imageId) {
       // If an image id is found, create an image.
       var image = ee.Image(app.COLLECTION_ID + '/' + imageId);
       // Add the image to the map with the corresponding visualization options.
       var visOption = app.VIS_OPTIONS[app.vis.select.getValue()];
-      Map.addLayer(image, visOption.visParams, imageId);
+      app.map.addLayer(image, visOption.visParams, imageId);
     }
   };
 };
 
 /** Creates the app constants. */
 app.createConstants = function() {
-  app.COLLECTION_ID = 'LANDSAT/LC8_L1T_TOA';
+  app.COLLECTION_ID = 'LANDSAT/LC08/C02/T1_TOA';
   app.SECTION_STYLE = {margin: '20px 0 0 0'};
   app.HELPER_TEXT_STYLE = {
       margin: '8px 0 -3px 8px',
@@ -214,17 +217,17 @@ app.createConstants = function() {
     'False color (B7/B6/B4)': {
       description: 'Vegetation is shades of red, urban areas are ' +
                    'cyan blue, and soils are browns.',
-      visParams: {gamma: 1.3, min: 0, max: 0.3, bands: ['B7', 'B6', 'B4']}
+      visParams: {gamma: 1.1, min: 0, max: 0.45, bands: ['B7', 'B6', 'B4']}
     },
     'Natural color (B4/B3/B2)': {
       description: 'Ground features appear in colors similar to their ' +
                    'appearance to the human visual system.',
-      visParams: {gamma: 1.3, min: 0, max: 0.3, bands: ['B4', 'B3', 'B2']}
+      visParams: {gamma: 1.1, min: 0, max: 0.35, bands: ['B4', 'B3', 'B2']}
     },
     'Atmospheric (B7/B6/B5)': {
       description: 'Coast lines and shores are well-defined. ' +
                    'Vegetation appears blue.',
-      visParams: {gamma: 1.3, min: 0, max: 0.3, bands: ['B7', 'B6', 'B5']}
+      visParams: {gamma: 1.1, min: 0, max: 0.45, bands: ['B7', 'B6', 'B5']}
     }
   };
 };
@@ -244,8 +247,9 @@ app.boot = function() {
     ],
     style: {width: '320px', padding: '8px'}
   });
-  Map.setCenter(-97, 26, 9);
-  ui.root.insert(0, main);
+  app.map.setCenter(-97, 26, 9);
+  ui.root.clear();
+  ui.root.widgets().add(ui.SplitPanel(main, app.map));
   app.applyFilters();
 };
 

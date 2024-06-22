@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 """Web server for the Trendy Lights application.
 
 The overall architecture looks like:
@@ -58,7 +58,6 @@ which in turn helps us avoid exceeding our quota and respond to user
 requests more quickly.
 
 """
-
 import json
 import os
 
@@ -81,9 +80,9 @@ class MainHandler(webapp2.RequestHandler):
   def get(self, path=''):
     """Returns the main web page, populated with EE map and polygon info."""
     mapid = GetTrendyMapId()
+    print(('MapID', mapid))
     template_values = {
-        'eeMapId': mapid['mapid'],
-        'eeToken': mapid['token'],
+        'mapUrlFormat': mapid['tile_fetcher'].url_format,
         'serializedPolygonIds': json.dumps(POLYGON_IDS)
     }
     template = JINJA2_ENVIRONMENT.get_template('index.html')
@@ -231,9 +230,7 @@ POLYGON_IDS = [name.replace('.json', '') for name in os.listdir(POLYGON_PATH)]
 # Create the Jinja templating system we use to dynamically generate HTML. See:
 # http://jinja.pocoo.org/docs/dev/
 JINJA2_ENVIRONMENT = jinja2.Environment(
-    loader=jinja2.FileSystemLoader(os.path.dirname(__file__)),
-    autoescape=True,
-    extensions=['jinja2.ext.autoescape'])
+    loader=jinja2.FileSystemLoader(os.path.dirname(__file__)), autoescape=True)
 
 # Initialize the EE API.
 ee.Initialize(EE_CREDENTIALS)

@@ -1,10 +1,7 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 """Test for the ee.geometry module."""
 
-
-
 import unittest
-
 import ee
 from ee import apitestcase
 
@@ -46,6 +43,39 @@ class GeometryTest(apitestcase.ApiTestCase):
     """Verifies MultiPolygon constructor behavior with valid arguments."""
     self.assertValid(4, ee.Geometry.MultiPolygon, 1, 2, 3, 4, 5, 6)
     self.assertValid(1, ee.Geometry.MultiPolygon)
+
+  def testValid_GeometryCollection(self):
+    """Verifies GeometryCollection constructor behavior with valid arguments."""
+    geometry = ee.Geometry({
+        'type':
+            'GeometryCollection',
+        'geometries': [{
+            'type': 'Polygon',
+            'coordinates': [[[-1, -1], [0, 1], [1, -1]]],
+            'geodesic': True,
+            'evenOdd': True
+        }, {
+            'type': 'Point',
+            'coordinates': [0, 0]
+        }, {
+            'type':
+                'GeometryCollection',
+            'geometries': [{
+                'type': 'Point',
+                'coordinates': [1, 2]
+            }, {
+                'type': 'Point',
+                'coordinates': [2, 1]
+            }]
+        }],
+        'coordinates': []
+    })
+    self.assertIsInstance(geometry, ee.Geometry)
+
+  def testInvalid_Point(self):
+    """Verifies Point constructor behavior with invalid arguments."""
+    f = ee.Geometry.Point
+    self.assertInvalid(f, 'Invalid geometry', ['-78.204948', '40.966539'])
 
   def testInvalid_MultiPoint(self):
     """Verifies MultiPoint constructor behavior with invalid arguments."""
@@ -123,29 +153,29 @@ class GeometryTest(apitestcase.ApiTestCase):
     get_coordinates_count = lambda g: len(g.toGeoJSON()['coordinates'])
 
     point = ee.Geometry.Point([1, 2])
-    self.assertEquals(2, get_coordinates_count(point))
+    self.assertEqual(2, get_coordinates_count(point))
 
     multipoint = ee.Geometry.MultiPoint([[1, 2], [3, 4], [5, 6]])
-    self.assertEquals(3, get_coordinates_count(multipoint))
+    self.assertEqual(3, get_coordinates_count(multipoint))
 
     line = ee.Geometry.LineString([[1, 2], [3, 4], [5, 6]])
-    self.assertEquals(3, get_coordinates_count(line))
+    self.assertEqual(3, get_coordinates_count(line))
 
     ring = ee.Geometry.LinearRing([[1, 2], [3, 4], [5, 6]])
-    self.assertEquals(3, get_coordinates_count(ring))
+    self.assertEqual(3, get_coordinates_count(ring))
 
     multiline = ee.Geometry.MultiLineString(
         [[[1, 2], [3, 4]],
          [[5, 6], [7, 8]]])
-    self.assertEquals(2, get_coordinates_count(multiline))
+    self.assertEqual(2, get_coordinates_count(multiline))
 
     polygon = ee.Geometry.Polygon([[[1, 2], [3, 4], [5, 6]]])
-    self.assertEquals(1, get_coordinates_count(polygon))
+    self.assertEqual(1, get_coordinates_count(polygon))
 
     mpolygon = ee.Geometry.MultiPolygon(
         [[[[1, 2], [3, 4], [5, 6]]],
          [[[1, 2], [3, 4], [5, 6]]]])
-    self.assertEquals(2, get_coordinates_count(mpolygon))
+    self.assertEqual(2, get_coordinates_count(mpolygon))
 
   def testGeodesicFlag(self):
     """Verifies that JSON parsing and generation preserves the geodesic flag."""
@@ -176,9 +206,9 @@ class GeometryTest(apitestcase.ApiTestCase):
 
     # GeoJSON.
     from_json = ee.Geometry(line.toGeoJSON())
-    self.assertEquals(from_json.func, None)
-    self.assertEquals(from_json._type, 'LineString')
-    self.assertEquals(from_json._coordinates, [[1, 2], [3, 4]])
+    self.assertIsNone(from_json.func)
+    self.assertEqual(from_json._type, 'LineString')
+    self.assertEqual(from_json._coordinates, [[1, 2], [3, 4]])
 
     # GeoJSON with a CRS specified.
     json_with_crs = line.toGeoJSON()
@@ -189,35 +219,34 @@ class GeometryTest(apitestcase.ApiTestCase):
         }
     }
     from_json_with_crs = ee.Geometry(json_with_crs)
-    self.assertEquals(from_json_with_crs.func, None)
-    self.assertEquals(from_json_with_crs._type, 'LineString')
-    self.assertEquals(from_json_with_crs._proj, 'SR-ORG:6974')
+    self.assertIsNone(from_json_with_crs.func)
+    self.assertEqual(from_json_with_crs._type, 'LineString')
+    self.assertEqual(from_json_with_crs._proj, 'SR-ORG:6974')
 
     # A not-computed geometry.
-    self.assertEquals(ee.Geometry(line), line)
+    self.assertEqual(ee.Geometry(line), line)
 
     # A not-computed geometry with an override.
     with_override = ee.Geometry(line, 'SR-ORG:6974')
-    self.assertEquals(with_override._proj, 'SR-ORG:6974')
+    self.assertEqual(with_override._proj, 'SR-ORG:6974')
 
     # A computed geometry.
-    self.assertEquals(ee.Geometry(line.bounds()), line.bounds())
+    self.assertEqual(ee.Geometry(line.bounds()), line.bounds())
 
     # Something to cast to a geometry.
     computed = ee.ComputedObject(ee.Function(), {'a': 1})
     geom = ee.Geometry(computed)
-    self.assertEquals(computed.func, geom.func)
-    self.assertEquals(computed.args, geom.args)
+    self.assertEqual(computed.func, geom.func)
+    self.assertEqual(computed.args, geom.args)
 
   def testComputedGeometries(self):
     """Verifies the computed object behavior of the Geometry constructor."""
     line = ee.Geometry.LineString(1, 2, 3, 4)
     bounds = line.bounds()
 
-    self.assertTrue(isinstance(bounds, ee.Geometry))
-    self.assertEquals(
-        ee.ApiFunction.lookup('Geometry.bounds'), bounds.func)
-    self.assertEquals(line, bounds.args['geometry'])
+    self.assertIsInstance(bounds, ee.Geometry)
+    self.assertEqual(ee.ApiFunction.lookup('Geometry.bounds'), bounds.func)
+    self.assertEqual(line, bounds.args['geometry'])
     self.assertTrue(hasattr(bounds, 'bounds'))
 
   def testComputedCoordinate(self):
@@ -225,33 +254,33 @@ class GeometryTest(apitestcase.ApiTestCase):
     coords = [1, ee.Number(1).add(1)]
     p = ee.Geometry.Point(coords)
 
-    self.assertTrue(isinstance(p, ee.Geometry))
-    self.assertEquals(
+    self.assertIsInstance(p, ee.Geometry)
+    self.assertEqual(
         ee.ApiFunction.lookup('GeometryConstructors.Point'), p.func)
-    self.assertEquals({'coordinates': ee.List(coords)}, p.args)
+    self.assertEqual({'coordinates': ee.List(coords)}, p.args)
 
   def testComputedList(self):
     """Verifies that a computed coordinate produces a computed geometry."""
     lst = ee.List([1, 2, 3, 4]).slice(0, 2)
     p = ee.Geometry.Point(lst)
 
-    self.assertTrue(isinstance(p, ee.Geometry))
-    self.assertEquals(
+    self.assertIsInstance(p, ee.Geometry)
+    self.assertEqual(
         ee.ApiFunction.lookup('GeometryConstructors.Point'), p.func)
-    self.assertEquals({'coordinates': lst}, p.args)
+    self.assertEqual({'coordinates': lst}, p.args)
 
   def testComputedProjection(self):
     """Verifies that a geometry with a projection can be constructed."""
     p = ee.Geometry.Point([1, 2], 'epsg:4326')
 
-    self.assertTrue(isinstance(p, ee.Geometry))
-    self.assertEquals(
+    self.assertIsInstance(p, ee.Geometry)
+    self.assertEqual(
         ee.ApiFunction.lookup('GeometryConstructors.Point'), p.func)
     expected_args = {
         'coordinates': ee.List([1, 2]),
         'crs': ee.ApiFunction.lookup('Projection').call('epsg:4326')
     }
-    self.assertEquals(expected_args, p.args)
+    self.assertEqual(expected_args, p.args)
 
   def testGeometryInputs(self):
     """Verifies that a geometry with geometry inputs can be constructed."""
@@ -259,37 +288,186 @@ class GeometryTest(apitestcase.ApiTestCase):
     p2 = ee.Geometry.Point([3, 4])
     line = ee.Geometry.LineString([p1, p2])
 
-    self.assertTrue(isinstance(line, ee.Geometry))
-    self.assertEquals(
+    self.assertIsInstance(line, ee.Geometry)
+    self.assertEqual(
         ee.ApiFunction.lookup('GeometryConstructors.LineString'), line.func)
-    self.assertEquals({'coordinates': ee.List([p1, p2])}, line.args)
+    self.assertEqual({'coordinates': ee.List([p1, p2])}, line.args)
 
   def testOldPointKeywordArgs(self):
     """Verifies that Points still allow keyword lon/lat args."""
-    self.assertEquals(ee.Geometry.Point(1, 2), ee.Geometry.Point(lon=1, lat=2))
-    self.assertEquals(ee.Geometry.Point(1, 2), ee.Geometry.Point(1, lat=2))
+    self.assertEqual(ee.Geometry.Point(1, 2), ee.Geometry.Point(lon=1, lat=2))
+    self.assertEqual(ee.Geometry.Point(1, 2), ee.Geometry.Point(1, lat=2))
 
   def testOldRectangleKeywordArgs(self):
     """Verifies that Rectangles still allow keyword xlo/ylo/xhi/yhi args."""
-    self.assertEquals(ee.Geometry.Rectangle(1, 2, 3, 4),
-                      ee.Geometry.Rectangle(xlo=1, ylo=2, xhi=3, yhi=4))
-    self.assertEquals(ee.Geometry.Rectangle(1, 2, 3, 4),
-                      ee.Geometry.Rectangle(1, 2, xhi=3, yhi=4))
+    self.assertEqual(
+        ee.Geometry.Rectangle(1, 2, 3, 4),
+        ee.Geometry.Rectangle(xlo=1, ylo=2, xhi=3, yhi=4))
+    self.assertEqual(
+        ee.Geometry.Rectangle(1, 2, 3, 4),
+        ee.Geometry.Rectangle(1, 2, xhi=3, yhi=4))
+
+  def wgs84_rectangle(self, west, south, east, north):
+    # If we call ee.Geometry.Rectangle with geodesic=False we would get a
+    # computed call.
+    return ee.Geometry({
+        'coordinates': [[[west, north],
+                         [west, south],
+                         [east, south],
+                         [east, north]]],
+        'type': 'Polygon',
+        'geodesic': False,
+    })
+
+  def testBBox_simple(self):
+    self.assertEqual(self.wgs84_rectangle(-10, -20, 10, 20),
+                     ee.Geometry.BBox(-10, -20, 10, 20))
+
+  def testBBox_computed(self):
+    ten = ee.Number(5).add(5)
+    box = ee.Geometry.BBox(-10, -20, ten, 20)
+
+    self.assertIsInstance(box, ee.Geometry)
+    self.assertEqual(
+        ee.ApiFunction.lookup('GeometryConstructors.BBox'), box.func)
+    expected_args = {
+        'west': ee.Number(-10),
+        'south': ee.Number(-20),
+        'east': ten,
+        'north': ee.Number(20),
+    }
+    self.assertEqual(expected_args, box.args)
+
+  def testBBox_latitude_widerThanPolesIsClamped(self):
+    self.assertEqual(
+        self.wgs84_rectangle(-10, -90, 10, 73),
+        ee.Geometry.BBox(-10, -1000, 10, 73))
+    self.assertEqual(
+        self.wgs84_rectangle(-10, -34, 10, 90),
+        ee.Geometry.BBox(-10, -34, 10, 10000))
+
+  def testBBox_latitude_notBeyondPoles(self):
+    # Reject cases which, if we clamped them instead, would move a box whose
+    # bounds lie past a pole to being a point at the pole.
+    self.assertInvalid(
+        ee.Geometry.BBox,
+        r'Geometry\.BBox: north must be at least -90°, but was -95°',
+        -10, -100, 10, -95)
+    self.assertInvalid(
+        ee.Geometry.BBox,
+        r'Geometry\.BBox: south must be at most \+90°, but was 95°',
+        -10, 95, 10, 100)
+
+  def testBBox_latitude_zeroSpan(self):
+    self.assertEqual(
+        self.wgs84_rectangle(-10, 20, 10, 20),
+        ee.Geometry.BBox(-10, 20, 10, 20))
+
+  def testBBox_longitude_crossingMeridianWithOppositeSigns(self):
+    self.assertEqual(
+        self.wgs84_rectangle(170, -20, 190, 20),
+        ee.Geometry.BBox(170, -20, -170, 20))
+
+  def testBBox_longitude_crossingMeridianWithNegativeSigns(self):
+    self.assertEqual(
+        self.wgs84_rectangle(170, -20, 190, 20),
+        ee.Geometry.BBox(-190, -20, -170, 20))
+
+  def testBBox_longitude_crossingMeridianWithPositiveSigns(self):
+    self.assertEqual(
+        self.wgs84_rectangle(170, -20, 190, 20),
+        ee.Geometry.BBox(170, -20, 190, 20))
+
+  def testBBox_longitude_exactlyGlobal(self):
+    self.assertEqual(
+        self.wgs84_rectangle(-180, -20, 180, 20),
+        ee.Geometry.BBox(-180, -20, 180, 20))
+
+  def testBBox_longitude_excessOfGlobalIsClamped(self):
+    epsilon = 1e-5
+    self.assertEqual(
+        self.wgs84_rectangle(-180, -20, 180, 20),
+        ee.Geometry.BBox(-180 - epsilon, -20, 180 + epsilon, 20))
+
+  def testBBox_longitude_zeroSpan(self):
+    self.assertEqual(
+        self.wgs84_rectangle(10, -20, 10, 20),
+        ee.Geometry.BBox(10, -20, 10, 20))
+
+  def testBBox_NaN_isRejected(self):
+    nan = float('nan')
+    self.assertInvalid(
+        ee.Geometry.BBox,
+        r'Geometry\.BBox: west must not be nan',
+        nan, -20, 10, 20)
+    self.assertInvalid(
+        ee.Geometry.BBox,
+        r'Geometry\.BBox: south must be at most \+90°, but was nan°',
+        -10, nan, 10, 20)
+    self.assertInvalid(
+        ee.Geometry.BBox,
+        r'Geometry\.BBox: east must not be nan',
+        -10, -20, nan, 20)
+    self.assertInvalid(
+        ee.Geometry.BBox,
+        r'Geometry.BBox: north must be at least -90°, but was nan°',
+        -10, -20, 10, nan)
+
+  def testBBox_infinities_invalidDirection_isRejected(self):
+    inf = float('inf')
+    self.assertInvalid(
+        ee.Geometry.BBox,
+        r'Geometry\.BBox: west must not be inf',
+        inf, -20, 10, 20)
+    self.assertInvalid(
+        ee.Geometry.BBox,
+        r'Geometry\.BBox: east must not be -inf',
+        -10, -20, -inf, 20)
+    self.assertInvalid(
+        ee.Geometry.BBox,
+        r'Geometry\.BBox: south must be at most \+90°, but was inf°',
+        -10, inf, 10, 20)
+    self.assertInvalid(
+        ee.Geometry.BBox,
+        r'Geometry\.BBox: north must be at least -90°, but was -inf°',
+        -10, -20, 10, -inf)
+
+  def testBBox_infinities_validDirection_isClamped(self):
+    inf = float('inf')
+    self.assertEqual(
+        ee.Geometry.BBox(-180, -20, 180, 20),
+        ee.Geometry.BBox(-10, -20, inf, 20))
+    self.assertEqual(
+        ee.Geometry.BBox(-180, -20, 180, 20),
+        ee.Geometry.BBox(-inf, -20, 10, 20))
+    self.assertEqual(
+        ee.Geometry.BBox(-10, -20, 10, 90),
+        ee.Geometry.BBox(-10, -20, 10, inf))
+    self.assertEqual(
+        ee.Geometry.BBox(-10, -90, 10, 20),
+        ee.Geometry.BBox(-10, -inf, 10, 20))
+
+  def testCrs_invalid_throws(self):
+    geo_json = ee.Geometry.LineString(1, 2, 3, 4).toGeoJSON()
+    geo_json['crs'] = {'something': 'invalid-crs'}
+    self.assertInvalid(
+        ee.Geometry, 'Invalid CRS declaration in GeoJSON:', geo_json
+    )
 
   def assertValid(self, nesting, ctor, *coords):
     """Checks that geometry is valid and has the expected nesting level.
 
     Args:
       nesting: The expected coordinate nesting level.
-      ctor: The geometry constructor function, e.g. ee.Geometry.MultiPoint.
+      ctor: The geometry constructor function, e.g., ee.Geometry.MultiPoint.
       *coords: The coordinates of the geometry.
     """
     # The constructor already does a validity check.
     geometry = ctor(*coords)
-    self.assertTrue(isinstance(geometry, ee.Geometry))
-    self.assertTrue(isinstance(geometry.toGeoJSON(), dict))
+    self.assertIsInstance(geometry, ee.Geometry)
+    self.assertIsInstance(geometry.toGeoJSON(), dict)
     final_coords = geometry.toGeoJSON()['coordinates']
-    self.assertEquals(nesting, ee.Geometry._isValidCoordinates(final_coords))
+    self.assertEqual(nesting, ee.Geometry._isValidCoordinates(final_coords))
 
   def assertInvalid(self, ctor, msg, *coords):
     """Verifies that geometry is invalid.
@@ -298,16 +476,12 @@ class GeometryTest(apitestcase.ApiTestCase):
     and verifies that the given error message is thrown.
 
     Args:
-      ctor: The geometry constructor function, e.g. ee.Geometry.MultiPoint.
+      ctor: The geometry constructor function, e.g., ee.Geometry.MultiPoint.
       msg: The expected error message in the thrown exception.
       *coords: The coordinates of the geometry.
     """
-    try:
+    with self.assertRaisesRegex(ee.EEException, msg):
       ctor(*coords)
-    except ee.EEException as e:
-      self.assertTrue(msg in str(e))
-    else:
-      self.fail('Expected an exception.')
 
   def testInternals(self):
     """Test eq(), ne() and hash()."""
@@ -315,11 +489,22 @@ class GeometryTest(apitestcase.ApiTestCase):
     b = ee.Geometry.Point(2, 1)
     c = ee.Geometry.Point(1, 2)
 
-    self.assertEquals(a, a)
-    self.assertNotEquals(a, b)
-    self.assertEquals(a, c)
-    self.assertNotEquals(b, c)
-    self.assertNotEquals(hash(a), hash(b))
+    self.assertEqual(a, a)
+    self.assertNotEqual(a, b)
+    self.assertEqual(a, c)
+    self.assertNotEqual(b, c)
+    self.assertNotEqual(hash(a), hash(b))
+
+  def testInitOptParams(self):
+    result = ee.Geometry(
+        geo_json={'type': 'Polygon', 'coordinates': [[[-2, 1]]]},
+        opt_proj='abc',
+        opt_geodesic=True,
+        opt_evenOdd=True,
+    ).serialize()
+    self.assertIn('"crs": {"constantValue": "abc"}', result)
+    self.assertIn('"geodesic": {"constantValue": true}', result)
+    self.assertIn('"evenOdd": {"constantValue": true}', result)
 
 
 if __name__ == '__main__':

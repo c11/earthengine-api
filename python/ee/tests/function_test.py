@@ -1,15 +1,14 @@
-#!/usr/bin/env python
-"""Tests for the ee.function module."""
-
-
+#!/usr/bin/env python3
+"""Test for the ee.function module."""
 
 import unittest
-
 import ee
 
 # A function to experiment on.
 TEST_FUNC = ee.Function()
-TEST_FUNC.getSignature = lambda: {  # pylint: disable-msg=g-long-lambda
+# pylint: disable-next=g-long-lambda
+TEST_FUNC.getSignature = lambda: {
+    'name': 'testFunction',
     'description': 'Method description.',
     'returns': 'Image',
     'args': [
@@ -37,12 +36,13 @@ class FunctionTest(unittest.TestCase):
 
   def testNameArgs(self):
     """Verifies that Functions can convert positional to named arguments."""
-    self.assertEquals({}, TEST_FUNC.nameArgs([]))
-    self.assertEquals({'a': 42}, TEST_FUNC.nameArgs([42]))
-    self.assertEquals({'a': 42, 'b': 13}, TEST_FUNC.nameArgs([42, 13]))
-    self.assertEquals({'a': 3, 'b': 5}, TEST_FUNC.nameArgs([3], {'b': 5}))
+    self.assertEqual({}, TEST_FUNC.nameArgs([]))
+    self.assertEqual({'a': 42}, TEST_FUNC.nameArgs([42]))
+    self.assertEqual({'a': 42, 'b': 13}, TEST_FUNC.nameArgs([42, 13]))
+    self.assertEqual({'a': 3, 'b': 5}, TEST_FUNC.nameArgs([3], {'b': 5}))
 
-    self.assertRaisesWithRegexpMatch('Too many', TEST_FUNC.nameArgs, [1, 2, 3])
+    self.assertRaisesRegex(ee.EEException, 'Too many', TEST_FUNC.nameArgs,
+                           [1, 2, 3])
 
   def testPromoteArgs(self):
     """Verifies that Functions can promote and verify their arguments."""
@@ -50,20 +50,27 @@ class FunctionTest(unittest.TestCase):
     ee.Function._registerPromoter(lambda obj, type_name: [type_name, obj])
 
     # Regular call.
-    self.assertEquals({'a': ['Image', 42], 'b': ['Image', 13]},
-                      TEST_FUNC.promoteArgs({'a': 42, 'b': 13}))
+    self.assertEqual({
+        'a': ['Image', 42],
+        'b': ['Image', 13]
+    }, TEST_FUNC.promoteArgs({
+        'a': 42,
+        'b': 13
+    }))
 
     # Allow missing optional argument.
-    self.assertEquals({'a': ['Image', 42]},
-                      TEST_FUNC.promoteArgs({'a': 42}))
+    self.assertEqual({'a': ['Image', 42]}, TEST_FUNC.promoteArgs({'a': 42}))
 
     # Disallow unknown arguments.
-    self.assertRaisesWithRegexpMatch(
-        'Required argument', TEST_FUNC.promoteArgs, {})
+    self.assertRaisesRegex(ee.EEException, 'Required argument',
+                           TEST_FUNC.promoteArgs, {})
 
     # Disallow unknown arguments.
-    self.assertRaisesWithRegexpMatch(
-        'Unrecognized', TEST_FUNC.promoteArgs, {'a': 42, 'c': 13})
+    self.assertRaisesRegex(ee.EEException, 'Unrecognized',
+                           TEST_FUNC.promoteArgs, {
+                               'a': 42,
+                               'c': 13
+                           })
 
     # Clean up.
     ee.Function._registerPromoter(old_promoter)
@@ -74,25 +81,27 @@ class FunctionTest(unittest.TestCase):
     ee.Function._registerPromoter(lambda obj, type_name: [type_name, obj])
 
     return_type, return_value = TEST_FUNC.call(42, 13)
-    self.assertEquals('Image', return_type)
-    self.assertEquals(TEST_FUNC, return_value.func)
-    self.assertEquals({'a': ['Image', 42], 'b': ['Image', 13]},
-                      return_value.args)
+    self.assertEqual('Image', return_type)
+    self.assertEqual(TEST_FUNC, return_value.func)
+    self.assertEqual({
+        'a': ['Image', 42],
+        'b': ['Image', 13]
+    }, return_value.args)
 
     # Clean up.
     ee.Function._registerPromoter(old_promoter)
 
   def testToString(self):
     """Verifies function docstring generation."""
-    self.assertEquals(EXPECTED_DOC, str(TEST_FUNC))
+    self.assertEqual(EXPECTED_DOC, str(TEST_FUNC))
 
-  def assertRaisesWithRegexpMatch(self, msg, func, *args):
-    try:
-      func(*args)
-    except ee.EEException as e:
-      self.assertTrue(msg in str(e))
-    else:
-      self.fail('Expected an exception.')
+  def testArgumentFailureMessage(self):
+    """Verifies properly formed function error message generation."""
+    self.assertRaisesRegex(
+        ee.EEException,
+        r'Required argument \(a\) missing to function: testFunction',
+        TEST_FUNC.promoteArgs,
+        {})
 
 
 if __name__ == '__main__':

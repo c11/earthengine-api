@@ -1,7 +1,6 @@
 /**
  * @fileoverview Base class for ImageCollection and FeatureCollection.
  * This class is never intended to be instantiated by the user.
- *
  */
 
 goog.provide('ee.Collection');
@@ -11,10 +10,14 @@ goog.require('ee.Element');
 goog.require('ee.Filter');
 goog.require('ee.arguments');
 
+goog.requireType('ee.ComputedObject');
+goog.requireType('ee.FeatureCollection');
+goog.requireType('ee.Function');
+goog.requireType('ee.Geometry');
 
 
 /**
- * Constructs a base collection by passing the representaion up to Element.
+ * Constructs a base collection by passing the representation up to Element.
  * @param {ee.Function} func The same argument as in ee.ComputedObject().
  * @param {Object} args The same argument as in ee.ComputedObject().
  * @param {string?=} opt_varName The same argument as in ee.ComputedObject().
@@ -22,7 +25,7 @@ goog.require('ee.arguments');
  * @extends {ee.Element}
  */
 ee.Collection = function(func, args, opt_varName) {
-  goog.base(this, func, args, opt_varName);
+  ee.Collection.base(this, 'constructor', func, args, opt_varName);
   ee.Collection.initialize();
 };
 goog.inherits(ee.Collection, ee.Element);
@@ -66,22 +69,19 @@ ee.Collection.reset = function() {
 /**
  * Apply a filter to this collection.
  *
- * Collection filtering is done by wrapping a collection in a filter
- * algorithm.  As additional filters are applied to a collection, we
- * try to avoid adding more wrappers and instead search for a wrapper
- * we can add to, however if the collection doesn't have a filter, this
- * will wrap it in one.
- *
- * @param {ee.Filter} newFilter A filter to add to this collection.
+ * @param {ee.Filter} filter A filter to apply to this collection.
  * @return {ee.Collection} The filtered collection.
  * @export
  */
-ee.Collection.prototype.filter = function(newFilter) {
-  if (!newFilter) {
+ee.Collection.prototype.filter = function(filter) {
+  var args = ee.arguments.extractFromFunction(
+      ee.Collection.prototype.filter, arguments);
+  filter = args['filter'];
+  if (!filter) {
     throw new Error('Empty filters.');
   }
   return this.castInternal(ee.ApiFunction._call(
-      'Collection.filter', this, newFilter));
+      'Collection.filter', this, filter));
 };
 
 
@@ -98,11 +98,10 @@ ee.Collection.prototype.filter = function(newFilter) {
  * @param {*} value - The value to compare against.
  * @return {ee.Collection} The filtered collection.
  * @export
- * @suppress {deprecated} We get to use this for now.
- * TODO(user): Decide whether to deprecate this.
+ * @deprecated Use filter() with ee.Filter.eq(), ee.Filter.gte(), etc.
  */
 ee.Collection.prototype.filterMetadata = function(name, operator, value) {
-  var args = ee.arguments.extract(
+  var args = ee.arguments.extractFromFunction(
       ee.Collection.prototype.filterMetadata, arguments);
   return this.filter(ee.Filter.metadata(
       args['name'], args['operator'], args['value']));
@@ -110,12 +109,18 @@ ee.Collection.prototype.filterMetadata = function(name, operator, value) {
 
 
 /**
- * Shortcut to filter a collection by geometry.  Items in the
- * collection with a footprint that fails to intersect the bounds
- * will be excluded when the collection is evaluated.
+ * Shortcut to filter a collection by intersection with geometry. Items in the
+ * collection with a footprint that fails to intersect the given geometry
+ * will be excluded.
  *
  * This is equivalent to this.filter(ee.Filter.bounds(...)).
- * @param {ee.Feature|ee.Geometry} geometry The geometry to filter to.
+ *
+ * Caution: providing a large or complex collection as the `geometry` argument
+ * can result in poor performance. Collating the geometry of collections does
+ * not scale well; use the smallest collection (or geometry) that is required to
+ * achieve the desired outcome.
+ * @param {!ee.Geometry|!ee.ComputedObject|!ee.FeatureCollection} geometry
+ *     The geometry, feature or collection to intersect with.
  * @return {ee.Collection} The filtered collection.
  * @export
  */
@@ -125,21 +130,21 @@ ee.Collection.prototype.filterBounds = function(geometry) {
 
 
 /**
- * Shortcut to filter a collection by a date range.  Items in the
- * collection with a time_start property that doesn't fall between the
- * start and end dates will be excluded.
+ * Shortcut to filter a collection by a date range. The start and end may be
+ * Dates, numbers (interpreted as milliseconds since 1970-01-01T00:00:00Z), or
+ * strings (such as '1996-01-01T08:00'). Based on 'system:time_start'.
  *
- * This is equivalent to this.filter(ee.Filter.date(...)).
+ * This is equivalent to this.filter(ee.Filter.date(...)); see the ee.Filter
+ * type for other date filtering options.
  *
- * @param {Date|string|number} start The start date as a Date object,
- *     a string representation of a date, or milliseconds since epoch.
- * @param {Date|string|number=} opt_end The end date as a Date object,
- *     a string representation of a date, or milliseconds since epoch.
- * @return {ee.Collection} The filtered collection.
+ * @param {!Date|string|number} start The start date (inclusive).
+ * @param {?Date|string|number=} opt_end The end date (exclusive). Optional. If
+ *     not specified, a 1-millisecond range starting at 'start' is created.
+ * @return {?ee.Collection} The filtered collection.
  * @export
  */
 ee.Collection.prototype.filterDate = function(start, opt_end) {
-  var args = ee.arguments.extract(
+  var args = ee.arguments.extractFromFunction(
       ee.Collection.prototype.filterDate, arguments);
   return this.filter(ee.Filter.date(args['start'], args['end']));
 };
@@ -157,7 +162,8 @@ ee.Collection.prototype.filterDate = function(start, opt_end) {
  * @export
  */
 ee.Collection.prototype.limit = function(max, opt_property, opt_ascending) {
-  var args = ee.arguments.extract(ee.Collection.prototype.limit, arguments);
+  var args = ee.arguments.extractFromFunction(
+      ee.Collection.prototype.limit, arguments);
   return this.castInternal(ee.ApiFunction._call(
       'Collection.limit', this,
       args['max'], args['property'], args['ascending']));
@@ -174,7 +180,8 @@ ee.Collection.prototype.limit = function(max, opt_property, opt_ascending) {
  * @export
  */
 ee.Collection.prototype.sort = function(property, opt_ascending) {
-  var args = ee.arguments.extract(ee.Collection.prototype.sort, arguments);
+  var args = ee.arguments.extractFromFunction(
+      ee.Collection.prototype.sort, arguments);
   return this.castInternal(ee.ApiFunction._call(
       'Collection.limit', this,
       undefined, args['property'], args['ascending']));
@@ -230,11 +237,11 @@ ee.Collection.prototype.map = function(algorithm, opt_dropNulls) {
  *     to each element. Must take two arguments: an element of the collection
  *     and the value from the previous iteration.
  * @param {*=} opt_first The initial state.
- * @return {ee.ComputedObject} The result of the Collection.iterate() call.
+ * @return {!ee.ComputedObject} The result of the Collection.iterate() call.
  * @export
  */
 ee.Collection.prototype.iterate = function(algorithm, opt_first) {
-  var first = goog.isDef(opt_first) ? opt_first : null;
+  var first = (opt_first !== undefined) ? opt_first : null;
   var elementType = this.elementType();
   var withCast = function(e, p) { return algorithm(new elementType(e), p); };
   return ee.ApiFunction._call('Collection.iterate', this, withCast, first);

@@ -9,6 +9,7 @@ goog.require('ee.Collection');
 goog.require('ee.ComputedObject');
 goog.require('ee.Feature');
 goog.require('ee.Geometry');
+goog.require('ee.Image');
 goog.require('ee.List');
 goog.require('ee.Types');
 goog.require('ee.arguments');
@@ -20,17 +21,17 @@ goog.require('goog.array');
 /**
  * FeatureCollections can be constructed from the following arguments:
  *   - A string: assumed to be the name of a collection.
- *   - A number: assumed to be the ID of a Fusion Table.
  *   - A single geometry.
  *   - A single feature.
  *   - A list of features.
+ *   - A GeoJSON FeatureCollection
  *   - A computed object: reinterpreted as a collection.
  *
  * @param {string|number|Array.<*>|ee.ComputedObject|
  *         ee.Geometry|ee.Feature|ee.FeatureCollection} args
  *     The constructor arguments.
  * @param {string=} opt_column The name of the geometry column to use.  Only
- *     useful with constructor types 1 and 2.
+ *     useful when working with a named collection.
  * @constructor
  * @extends {ee.Collection}
  * @export
@@ -61,26 +62,38 @@ ee.FeatureCollection = function(args, opt_column) {
     args = [args];
   }
 
-  if (ee.Types.isNumber(args) || ee.Types.isString(args)) {
+  if (ee.Types.isString(args)) {
     // An ID.
     var actualArgs = {'tableId': args};
     if (opt_column) {
       actualArgs['geometryColumn'] = opt_column;
     }
-    goog.base(this, new ee.ApiFunction('Collection.loadTable'), actualArgs);
-  } else if (goog.isArray(args)) {
+    ee.FeatureCollection.base(
+        this,
+        'constructor',
+        new ee.ApiFunction('Collection.loadTable'), actualArgs);
+  } else if (Array.isArray(args)) {
     // A list of features.
-    goog.base(this, new ee.ApiFunction('Collection'), {
+    ee.FeatureCollection.base(
+        this, 'constructor', new ee.ApiFunction('Collection'), {
       'features': goog.array.map(args, function(elem) {
         return new ee.Feature(elem);
       })
     });
   } else if (args instanceof ee.List) {
     // A computed list of features.  This can't get the extra ee.Feature()
-    goog.base(this, new ee.ApiFunction('Collection'), { 'features': args });
+    ee.FeatureCollection.base(
+        this, 'constructor', new ee.ApiFunction('Collection'),
+        {'features': args});
+  } else if (args && typeof args === 'object'
+      && args['type'] === 'FeatureCollection') {
+    ee.FeatureCollection.base(
+        this, 'constructor', new ee.ApiFunction('Collection'),
+        {'features': args['features'].map(f => new ee.Feature(f))});
   } else if (args instanceof ee.ComputedObject) {
     // A custom object to reinterpret as a FeatureCollection.
-    goog.base(this, args.func, args.args, args.varName);
+    ee.FeatureCollection.base(
+        this, 'constructor', args.func, args.args, args.varName);
   } else {
     throw Error('Unrecognized argument type to convert to a ' +
                 'FeatureCollection: ' + args);
@@ -119,34 +132,54 @@ ee.FeatureCollection.reset = function() {
 
 
 /**
- * An imperative function that returns a map id and token, suitable for
+ * An imperative function that returns a map ID and optional token, suitable for
  * generating a Map overlay.
  *
- * @param {Object?=} opt_visParams The visualization parameters. Currently only
- *     one parameter, 'color', containing an RGB color string is allowed.  If
- *     vis_params isn't specified, then the color #000000 is used.
- * @param {function(Object, string=)=} opt_callback An async callback.
- *     If not supplied, the call is made synchronously.
- * @return {ee.data.MapId|undefined} An object containing a mapid string, an
- *     acess token, plus a Collection.draw image wrapping this collection. Or
- *     undefined if a callback was specified.
+ * @param {?Object=} opt_visParams The visualization parameters. Currently only
+ *     one parameter, 'color', containing an RGB color string is allowed. If
+ *     visParams is not specified, black ("000000") is used.
+ * @param {function(!Object, string=)=} opt_callback An async callback.
+ * @return {!ee.data.MapId|undefined} An object which may be passed to
+ *     ee.data.getTileUrl or ui.Map.addLayer, including an additional 'image'
+ *     field, containing a Collection.draw image wrapping a FeatureCollection
+ *     containing this feature. Undefined if a callback was specified.
  * @export
  */
-ee.FeatureCollection.prototype.getMap = function(opt_visParams, opt_callback) {
-  var args = ee.arguments.extract(
-      ee.FeatureCollection.prototype.getMap, arguments);
+ee.FeatureCollection.prototype.getMapId = function(
+    opt_visParams, opt_callback) {
+  const args = ee.arguments.extractFromFunction(
+      ee.FeatureCollection.prototype.getMapId, arguments);
 
-  var painted = ee.ApiFunction._apply('Collection.draw', {
-    'collection': this,
-    'color': (args['visParams'] || {})['color'] || '000000'
-  });
+  const painted =
+      /** @type {!ee.Image} */ (ee.ApiFunction._apply('Collection.draw', {
+        'collection': this,
+        'color': (args['visParams'] || {})['color'] || '000000'
+      }));
 
   if (args['callback']) {
-    painted.getMap(null, args['callback']);
+    painted.getMapId(undefined, args['callback']);
   } else {
-    return painted.getMap();
+    return painted.getMapId();
   }
 };
+
+
+/**
+ * An imperative function that returns a map ID and optional token, suitable for
+ * generating a Map overlay.
+ *
+ * @deprecated Use getMapId() instead.
+ * @param {?Object=} opt_visParams The visualization parameters. Currently only
+ *     one parameter, 'color', containing an RGB color string is allowed. If
+ *     visParams is not specified, black ("000000") is used.
+ * @param {function(!Object, string=)=} opt_callback An async callback.
+ * @return {!ee.data.MapId|undefined} An object which may be passed to
+ *     ee.data.getTileUrl or ui.Map.addLayer, including an additional 'image'
+ *     field, containing a Collection.draw image wrapping a FeatureCollection
+ *     containing this feature. Undefined if a callback was specified.
+ * @export
+ */
+ee.FeatureCollection.prototype.getMap = ee.FeatureCollection.prototype.getMapId;
 
 
 /**
@@ -164,20 +197,25 @@ ee.FeatureCollection.prototype.getMap = function(opt_visParams, opt_callback) {
  *     - properties: an optional dictionary containing the collection's
  *           metadata properties.
  * @export
+ * @override
  */
 ee.FeatureCollection.prototype.getInfo = function(opt_callback) {
   return /** @type {ee.data.FeatureCollectionDescription} */(
-      goog.base(this, 'getInfo', opt_callback));
+      ee.FeatureCollection.base(this, 'getInfo', opt_callback));
 };
 
 
 /**
- * Get a download URL.
+ * Gets a download URL. When the URL is accessed, the FeatureCollection is
+ * downloaded in one of several formats.
  * @param {string=} opt_format The format of download, one of:
- *     "csv", "json", "kml", "kmz".
- * @param {string|!Array<string>=} opt_selectors Selectors that should be used
- *     to determine which attributes will be downloaded.
- * @param {string=} opt_filename Name of the file to be downloaded.
+ *     "csv", "json", "geojson", "kml", "kmz" ("json" outputs GeoJSON). If
+ *     unspecified, defaults to "csv".
+ * @param {string|!Array<string>=} opt_selectors Feature property names used to
+ *     select the attributes to be downloaded. If unspecified, all properties
+ *     are included.
+ * @param {string=} opt_filename Name of the file to be downloaded; extension is
+ *     appended by default. If unspecified, defaults to "table".
  * @param {function(string?, string=)=} opt_callback An optional
  *     callback. If not supplied, the call is made synchronously.
  * @return {string|undefined} A download URL or undefined if a callback was
@@ -186,10 +224,10 @@ ee.FeatureCollection.prototype.getInfo = function(opt_callback) {
  */
 ee.FeatureCollection.prototype.getDownloadURL = function(
     opt_format, opt_selectors, opt_filename, opt_callback) {
-  var args = ee.arguments.extract(
+  const args = ee.arguments.extractFromFunction(
       ee.FeatureCollection.prototype.getDownloadURL, arguments);
-  var request = {};
-  request['table'] = this.serialize();
+  const request = {};
+  request['table'] = this;
   if (args['format']) {
     request['format'] = args['format'].toUpperCase();
   }
@@ -197,11 +235,7 @@ ee.FeatureCollection.prototype.getDownloadURL = function(
     request['filename'] = args['filename'];
   }
   if (args['selectors']) {
-    var selectors = args['selectors'];
-    if (goog.isArrayLike(selectors)) {
-      selectors = selectors.join(',');
-    }
-    request['selectors'] = selectors;
+    request['selectors'] = args['selectors'];
   }
 
   if (args['callback']) {
@@ -214,28 +248,43 @@ ee.FeatureCollection.prototype.getDownloadURL = function(
     });
   } else {
     return ee.data.makeTableDownloadUrl(
-        /** @type {ee.data.DownloadId} */ (
+        /** @type {!ee.data.DownloadId} */ (
             ee.data.getTableDownloadId(request)));
   }
 };
 
 
 /**
- * Select properties from each Feature in a collection.
+ * Select properties from each Feature in a collection.  It is also
+ * possible to call this function with only string arguments; they
+ * will be all be interpreted as propertySelectors (varargs).
  *
- * @param {Array.<string>} selectors A list of names or regexes
+ * @param {!Array<string>} propertySelectors A list of names or regexes
  *     specifying the attributes to select.
- * @param {Array.<string>=} opt_names A list of new names for the output
- *     properties. Must match the number of properties selected.
- * @return {ee.FeatureCollection} The feature collection with selected
- * properties.
+ * @param {!Array<string>=} opt_newProperties A list of new names for the
+ *     output properties. Must match the number of properties selected.
+ * @param {boolean=} opt_retainGeometry When false, the result will have a
+ *     NULL geometry. Defaults to true.
+ * @return {!ee.FeatureCollection} The feature collection with selected
+ *     properties.
  * @export
  */
-ee.FeatureCollection.prototype.select = function(selectors, opt_names) {
-  var varargs = arguments;
-  return /** @type {ee.FeatureCollection} */(this.map(function(feature) {
-    return feature.select.apply(feature, varargs);
-  }));
+ee.FeatureCollection.prototype.select = function(
+    propertySelectors, opt_newProperties, opt_retainGeometry) {
+  if (ee.Types.isString(propertySelectors)) {
+    // Varargs.
+    var varargs = Array.prototype.slice.call(arguments);
+    return /** @type {!ee.FeatureCollection} */ (this.map(function(feature) {
+      return /** @type {!ee.Feature} */(feature).select(varargs);
+    }));
+  } else {
+    // Translate the argument names.
+    var args = ee.arguments.extractFromFunction(
+        ee.FeatureCollection.prototype.select, arguments);
+    return /** @type {!ee.FeatureCollection} */ (this.map(function(feature) {
+      return /** @type {!ee.Feature} */(feature).select(args);
+    }));
+  }
 };
 
 

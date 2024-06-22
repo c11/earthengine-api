@@ -3,16 +3,17 @@
  */
 
 goog.provide('ee.Function');
-goog.provide('ee.Function.Signature');
 
 goog.require('ee.ComputedObject');
 goog.require('ee.Encodable');
 goog.require('ee.Serializer');
 goog.require('ee.Types');
+goog.require('ee.api');
 goog.require('goog.array');
 goog.require('goog.functions');
 goog.require('goog.object');
 
+goog.requireType('ee.data');
 
 
 /**
@@ -20,7 +21,7 @@ goog.require('goog.object');
  * must implement encode() and getSignature().
  *
  * TODO(user): Implement Function.bind() while supporting both positional
- *              and named args and avoiding dependendency on CustomFunction.
+ *              and named args and avoiding a dependency on CustomFunction.
  *
  * @constructor
  * @extends {ee.Encodable}
@@ -68,7 +69,7 @@ ee.Function.prototype.getSignature = goog.abstractMethod;
  * Call the function with the given positional arguments.
  *
  * @param {...*} var_args Positional arguments to pass to the function.
- * @return {ee.ComputedObject} An object representing the called function.
+ * @return {!ee.ComputedObject} An object representing the called function.
  *     If the signature specifies a recognized return type, the returned
  *     value will be cast to that type.
  * @export
@@ -82,14 +83,14 @@ ee.Function.prototype.call = function(var_args) {
  * Call the function with a dictionary of named arguments.
  *
  * @param {Object} namedArgs A dictionary of arguments to the function.
- * @return {ee.ComputedObject} An object representing the lazy result of
+ * @return {!ee.ComputedObject} An object representing the lazy result of
  *     the called function. If the signature specifies a recognized return
  *     type, the returned value will be cast to that type.
  * @export
  */
 ee.Function.prototype.apply = function(namedArgs) {
-  var result = new ee.ComputedObject(this, this.promoteArgs(namedArgs));
-  return /** @type {ee.ComputedObject} */(
+  const result = new ee.ComputedObject(this, this.promoteArgs(namedArgs));
+  return /** @type {!ee.ComputedObject} */(
       ee.Function.promoter_(result, this.getReturnType()));
 };
 
@@ -100,39 +101,23 @@ ee.Function.prototype.apply = function(namedArgs) {
  *
  * @param {*|undefined} thisValue The "this" value on which the function was
  *     called. If defined, interpreted as the first argument.
- * @param {Array<*>} args A list containing either positional args or a
+ * @param {!Array<*>} args A list containing either positional args or a
  *    keyword arg dictionary.
- * @return {ee.ComputedObject} An object representing the called function.
+ * @return {!ee.ComputedObject} An object representing the called function.
  *     If the signature specifies a recognized return type, the returned
  *     value will be cast to that type.
  * @package
  */
 ee.Function.prototype.callOrApply = function(thisValue, args) {
-  var isInstance = goog.isDef(thisValue);
-  var signature = this.getSignature();
-
-  // Assume keyword arguments if we get a single dictionary.
-  var useKeywordArgs = false;
-  if (args.length == 1 && ee.Types.isRegularObject(args[0])) {
-    // Decide whether the algorithm expects a dictionary as an only arg.
-    var params = signature['args'];
-    if (isInstance) {
-      params = params.slice(1);
-    }
-    if (params.length) {
-      var requiresOneArg = (params.length == 1 || params[1]['optional']);
-      var aSingleDictionaryIsValid =
-          (requiresOneArg && params[0]['type'] == 'Dictionary');
-      useKeywordArgs = !aSingleDictionaryIsValid;
-    }
-  }
+  const isInstance = (thisValue !== undefined);
+  const signature = this.getSignature();
 
   // Convert positional to named args.
-  var namedArgs;
-  if (useKeywordArgs) {
+  let namedArgs;
+  if (ee.Types.useKeywordArgs(args, signature, isInstance)) {
     namedArgs = goog.object.clone(/** @type {Object} */ (args[0]));
     if (isInstance) {
-      var firstArgName = signature['args'][0]['name'];
+      const firstArgName = signature['args'][0]['name'];
       if (firstArgName in namedArgs) {
         throw Error('Named args for ' + signature['name'] +
                     ' can\'t contain keyword ' + firstArgName);
@@ -153,18 +138,18 @@ ee.Function.prototype.callOrApply = function(thisValue, args) {
  * are present.
  *
  * @param {Object} args Keyword arguments to the function.
- * @return {Object} The promoted arguments.
+ * @return {!Object} The promoted arguments.
  * @protected
  */
 ee.Function.prototype.promoteArgs = function(args) {
-  var specs = this.getSignature()['args'];
+  const specs = this.getSignature()['args'];
 
   // Promote all recognized args.
-  var promotedArgs = {};
-  var known = {};
-  for (var i = 0; i < specs.length; i++) {
-    var name = specs[i]['name'];
-    if (name in args && goog.isDef(args[name])) {
+  const promotedArgs = {};
+  const known = {};
+  for (let i = 0; i < specs.length; i++) {
+    const name = specs[i]['name'];
+    if (name in args && args[name] !== undefined) {
       promotedArgs[name] = ee.Function.promoter_(args[name], specs[i]['type']);
     } else if (!specs[i]['optional']) {
       throw Error('Required argument (' + name + ') missing to function: ' +
@@ -174,8 +159,8 @@ ee.Function.prototype.promoteArgs = function(args) {
   }
 
   // Check for unknown arguments.
-  var unknown = [];
-  for (var argName in args) {
+  const unknown = [];
+  for (const argName in args) {
     if (!known[argName]) {
       unknown.push(argName);
     }
@@ -195,17 +180,17 @@ ee.Function.prototype.promoteArgs = function(args) {
  * the list contains enough arguments to satisfy the call.
  *
  * @param {Array} args Positional arguments to the function.
- * @return {Object} Keyword arguments to the function.
+ * @return {!Object} Keyword arguments to the function.
  * @protected
  */
 ee.Function.prototype.nameArgs = function(args) {
-  var specs = this.getSignature()['args'];
+  const specs = this.getSignature()['args'];
   if (specs.length < args.length) {
     throw Error('Too many (' + args.length + ') arguments to function: ' +
                 this);
   }
-  var namedArgs = {};
-  for (var i = 0; i < args.length; i++) {
+  const namedArgs = {};
+  for (let i = 0; i < args.length; i++) {
     namedArgs[specs[i]['name']] = args[i];
   }
   return namedArgs;
@@ -230,8 +215,8 @@ ee.Function.prototype.getReturnType = function() {
  * @override
  */
 ee.Function.prototype.toString = function(opt_name, opt_isInstance) {
-  var signature = this.getSignature();
-  var buffer = [];
+  const signature = this.getSignature();
+  const buffer = [];
   buffer.push(opt_name || signature['name']);
   buffer.push('(');
   buffer.push(goog.array.map(signature['args'].slice(opt_isInstance ? 1 : 0),
@@ -248,13 +233,13 @@ ee.Function.prototype.toString = function(opt_name, opt_isInstance) {
   buffer.push('\n');
   if (signature['args'].length) {
     buffer.push('\nArgs:\n');
-    for (var i = 0; i < signature['args'].length; i++) {
+    for (let i = 0; i < signature['args'].length; i++) {
       if (opt_isInstance && i == 0) {
         buffer.push('  this:');
       } else {
         buffer.push('\n  ');
       }
-      var arg = signature['args'][i];
+      const arg = signature['args'][i];
       buffer.push(arg['name']);
       buffer.push(' (');
       buffer.push(arg['type']);
@@ -274,10 +259,12 @@ ee.Function.prototype.toString = function(opt_name, opt_isInstance) {
 
 
 /**
+ * @param {boolean=} legacy Enables legacy format.
  * @return {string} The serialized representation of this object.
  */
-ee.Function.prototype.serialize = function() {
-  return ee.Serializer.toJSON(this);
+ee.Function.prototype.serialize = function(legacy = false) {
+  return legacy ? ee.Serializer.toJSON(this) :
+                  ee.Serializer.toCloudApiJSON(this);
 };
 
 
@@ -289,7 +276,19 @@ ee.Function.prototype.serialize = function() {
  *   args: !Array.<ee.data.AlgorithmArgument>,
  *   returns: string,
  *   description: (string|undefined),
- *   deprecated: (string|undefined)
+ *   deprecated: (string|undefined),
+ *   preview: (boolean|undefined),
+ *   sourceCodeUri: (string|undefined),
  * }}
  */
 ee.Function.Signature;
+
+
+/**
+ * Encodes the function in a format compatible with ee.Serializer.
+ * @param {!ee.Encodable.Serializer}
+ *    serializer An object that can be used to encode a serializable object.
+ * @param {!Object<string, !ee.api.ValueNode>} args
+ * @return {!ee.api.ValueNode} The encoded object.
+ */
+ee.Function.prototype.encodeCloudInvocation = goog.abstractMethod;

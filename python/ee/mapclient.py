@@ -1,4 +1,3 @@
-#!/usr/bin/env python
 """A slippy map GUI.
 
 Implements a tiled slippy map using Tk canvas. Displays map tiles using
@@ -18,49 +17,23 @@ Tiles are referenced using a key of (level, x, y) throughout.
 Several of the functions are named to match the Google Maps Javascript API,
 and therefore violate style guidelines.
 """
-
-
-
 # TODO(user):
 # 1) Add a zoom bar.
 # 2) When the move() is happening inside the Drag function, it'd be
 #    a good idea to use a semaphore to keep new tiles from being added
 #    and subsequently moved.
 
-import collections
-import cStringIO
+from collections import abc
 import functools
+import io
 import math
-import Queue
+import queue
 import sys
 import threading
-import urllib2
-import six
-
-# check if the Python imaging libraries used by the mapclient module are
-# installed
-try:
-  import ImageTk             # pylint: disable=g-import-not-at-top
-  import Image               # pylint: disable=g-import-not-at-top
-except ImportError:
-  # pylint: disable=superfluous-parens
-  print("""
-    ERROR: A Python library (PIL) used by the Earth Engine API mapclient module
-    was not found. Information on PIL can be found at:
-    http://pypi.python.org/pypi/PIL
-    """)
-  raise
-
-try:
-  import Tkinter             # pylint: disable=g-import-not-at-top
-except ImportError:
-  # pylint: disable=superfluous-parens
-  print("""
-    ERROR: A Python library (Tkinter) used by the Earth Engine API mapclient
-    module was not found. Instructions for installing Tkinter can be found at:
-    http://tkinter.unpythonic.net/wiki/How_to_install_Tkinter
-    """)
-  raise
+import tkinter as Tkinter
+import urllib.request
+from PIL import Image
+from PIL import ImageTk
 
 # The default URL to fetch tiles from.  We could pull this from the EE library,
 # however this doesn't have any other dependencies on that yet, so let's not.
@@ -219,8 +192,10 @@ class MapClient(threading.Thread):
         newtile = ImageTk.PhotoImage(newtile)
         xpos = key[1] * overlay.TILE_WIDTH + self.origin_x
         ypos = key[2] * overlay.TILE_HEIGHT + self.origin_y
+        # pytype: disable=attribute-error
         self.canvas.create_image(
             xpos, ypos, anchor=Tkinter.NW, image=newtile, tags=['tile', key])
+        # pytype: enable=attribute-error
         self.tktiles[key] = newtile        # Hang on to the new tile.
       else:
         self.tktiles[key].paste(newtile)
@@ -235,7 +210,7 @@ class MapClient(threading.Thread):
     if self.level + direction >= 0:
       # Discard everything cached in the MapClient, and flush the fetch queues.
       self.Flush()
-      self.canvas.delete(Tkinter.ALL)
+      self.canvas.delete(Tkinter.ALL)  # pytype: disable=attribute-error
       self.tiles = {}
       self.tktiles = {}
 
@@ -253,28 +228,33 @@ class MapClient(threading.Thread):
     """Records the anchor location and sets drag handler."""
     self.anchor_x = event.x
     self.anchor_y = event.y
+    # pytype: disable=attribute-error
     self.canvas.bind('<Motion>', self.DragHandler)
+    # pytype: enable=attribute-error
 
   def DragHandler(self, event):
     """Updates the map position and anchor position."""
     dx = event.x - self.anchor_x
     dy = event.y - self.anchor_y
     if dx or dy:
-      self.canvas.move(Tkinter.ALL, dx, dy)
+      self.canvas.move(Tkinter.ALL, dx, dy)  # pytype: disable=attribute-error
       self.origin_x += dx
       self.origin_y += dy
       self.anchor_x = event.x
       self.anchor_y = event.y
 
-  def ReleaseHandler(self, unused_event):
+  def ReleaseHandler(self, event):
     """Unbind drag handler and redraw."""
-    self.canvas.unbind('<Motion>')
+    del event  # Unused.
+    self.canvas.unbind('<Motion>')  # pytype: disable=attribute-error
     self.LoadTiles()
 
   def ResizeHandler(self, event):
     """Handle resize events."""
     # There's a 2 pixel border.
+    # pytype: disable=attribute-error
     self.canvas.config(width=event.width - 2, height=event.height - 2)
+    # pytype: enable=attribute-error
     self.LoadTiles()
 
   def CenterMap(self, lon, lat, opt_zoom=None):
@@ -314,10 +294,10 @@ class MapClient(threading.Thread):
   def KeypressHandler(self, event):
     """Handle keypress events."""
     if event.char == 'q' or event.char == 'Q':
-      self.parent.destroy()
+      self.parent.destroy()  # pytype: disable=attribute-error
 
 
-class MapOverlay(object):
+class MapOverlay:
   """A class representing a map overlay."""
 
   TILE_WIDTH = 256
@@ -326,11 +306,12 @@ class MapOverlay(object):
   _images = {}               # The tile cache, keyed by (url, level, x, y).
   _lru_keys = []             # Keys to the cached tiles, for cache ejection.
 
-  def __init__(self, url):
+  def __init__(self, url, tile_fetcher=None):
     """Initialize the MapOverlay."""
     self.url = url
+    self.tile_fetcher = tile_fetcher
     # Make 10 workers.
-    self.queue = Queue.Queue()
+    self.queue = queue.Queue()
     self.fetchers = [MapOverlay.TileFetcher(self) for unused_x in range(10)]
     self.constant = None
 
@@ -371,10 +352,12 @@ class MapOverlay(object):
       The list of tile keys to fill the given viewport.
     """
     tile_list = []
-    for y in xrange(int(bbox[1] / MapOverlay.TILE_HEIGHT),
-                    int(bbox[3] / MapOverlay.TILE_HEIGHT + 1)):
-      for x in xrange(int(bbox[0] / MapOverlay.TILE_WIDTH),
-                      int(bbox[2] / MapOverlay.TILE_WIDTH + 1)):
+    for y in range(
+        int(bbox[1] / MapOverlay.TILE_HEIGHT),
+        int(bbox[3] / MapOverlay.TILE_HEIGHT + 1)):
+      for x in range(
+          int(bbox[0] / MapOverlay.TILE_WIDTH),
+          int(bbox[2] / MapOverlay.TILE_WIDTH + 1)):
         tile_list.append((level, x, y))
     return tile_list
 
@@ -428,7 +411,7 @@ class MapOverlay(object):
     def __init__(self, overlay):
       threading.Thread.__init__(self)
       self.overlay = overlay
-      self.setDaemon(True)
+      self.daemon = True
       self.start()
 
     def run(self):
@@ -439,14 +422,17 @@ class MapOverlay(object):
         if not self.overlay.GetCachedTile(key):
           (level, x, y) = key
           if x >= 0 and y >= 0 and x <= 2 ** level-1 and y <= 2 ** level-1:
-            url = self.overlay.url % key
             try:
-              data = urllib2.urlopen(url).read()
-            except urllib2.HTTPError as e:
-              print() >> sys.stderr, e
+              if self.overlay.tile_fetcher is not None:
+                data = self.overlay.tile_fetcher.fetch_tile(x=x, y=y, z=level)
+              else:
+                url = self.overlay.url % key
+                data = urllib.request.urlopen(url).read()
+            except Exception as e:  # pylint: disable=broad-except
+              print(e, file=sys.stderr)
             else:
               # PhotoImage can't handle alpha on LA images.
-              image = Image.open(cStringIO.StringIO(data)).convert('RGBA')
+              image = Image.open(io.BytesIO(data)).convert('RGBA')
               callback(image)
               self.overlay.PutCacheTile(key, image)
 
@@ -455,7 +441,7 @@ def MakeOverlay(mapid, baseurl=BASE_URL):
   """Create an overlay from a mapid."""
   url = (baseurl + '/map/' + mapid['mapid'] + '/%d/%d/%d?token=' +
          mapid['token'])
-  return MapOverlay(url)
+  return MapOverlay(url, tile_fetcher=mapid['tile_fetcher'])
 
 
 #
@@ -464,27 +450,27 @@ def MakeOverlay(mapid, baseurl=BASE_URL):
 map_instance = None
 
 
-# pylint: disable=g-bad-name
-def addToMap(eeobject, vis_params=None, *unused_args):
+# pylint: disable-next=g-bad-name,keyword-arg-before-vararg]
+def addToMap(eeobject, vis_params=None, *args):
   """Adds a layer to the default map instance.
 
   Args:
       eeobject: the object to add to the map.
       vis_params: a dictionary of visualization parameters.  See
           ee.data.getMapId().
-      *unused_args: unused arguments, left for compatibility with the JS API.
+      *args: unused arguments, left for compatibility with the JS API.
 
   This call exists to be an equivalent to the playground addToMap() call.
   It uses a global MapInstance to hang on to "the map".  If the MapInstance
-  isn't initializd, this creates a new one.
+  isn't initialized, this creates a new one.
   """
+  del args  # Unused.
   # Flatten any lists to comma separated strings.
   if vis_params:
     vis_params = dict(vis_params)
     for key in vis_params:
       item = vis_params.get(key)
-      if (isinstance(item, collections.Iterable) and
-          not isinstance(item, six.string_types)):
+      if (isinstance(item, abc.Iterable) and not isinstance(item, str)):
         vis_params[key] = ','.join([str(x) for x in item])
 
   overlay = MakeOverlay(eeobject.getMapId(vis_params))

@@ -6,13 +6,16 @@ goog.provide('ee.String');
 
 goog.require('ee.ApiFunction');
 goog.require('ee.ComputedObject');
+goog.require('ee.rpc_node');
+goog.requireType('ee.Encodable');
+goog.requireType('ee.api');
 
 
 
 /**
  * Constructs a new String.
  *
- * @param {string|Object} string A string or a computed object.
+ * @param {string|!Object} string A string or a computed object.
  *
  * @constructor
  * @extends {ee.ComputedObject}
@@ -36,16 +39,16 @@ ee.String = function(string) {
    */
   this.string_;
 
-  if (goog.isString(string)) {
-    goog.base(this, null, null);
+  if (typeof (string) === 'string') {
+    ee.String.base(this, 'constructor', null, null);
     this.string_ = /** @type {string} */ (string);
   } else if (string instanceof ee.ComputedObject) {
     this.string_ = null;
     if (string.func && string.func.getSignature()['returns'] == 'String') {
       // If it's a call that's already returning a String, just cast.
-      goog.base(this, string.func, string.args, string.varName);
+      ee.String.base(this, 'constructor', string.func, string.args, string.varName);
     } else {
-      goog.base(this, new ee.ApiFunction('String'), {'input': string}, null);
+      ee.String.base(this, 'constructor', new ee.ApiFunction('String'), {'input': string}, null);
     }
   } else {
     throw Error('Invalid argument specified for ee.String(): ' + string);
@@ -80,10 +83,21 @@ ee.String.reset = function() {
 
 /** @override */
 ee.String.prototype.encode = function(encoder) {
-  if (goog.isString(this.string_)) {
+  if (typeof (this.string_) === 'string') {
     return this.string_;
   } else {
-    return goog.base(this, 'encode', encoder);
+    return ee.String.base(this, 'encode', encoder);
+  }
+};
+
+
+/** @override @return {!ee.api.ValueNode} */
+ee.String.prototype.encodeCloudValue = function(
+    /** !ee.Encodable.Serializer */ serializer) {
+  if (typeof (this.string_) === 'string') {
+    return ee.rpc_node.reference(serializer.makeReference(this.string_));
+  } else {
+    return ee.String.base(this, 'encodeCloudValue', serializer);
   }
 };
 

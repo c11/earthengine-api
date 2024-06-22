@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 """An example application that allows interactive classification training."""
 
 import json
@@ -19,7 +19,7 @@ class MainPage(webapp2.RequestHandler):
 
   def get(self):
     """Writes the index page to the response based on the template."""
-    template = jinja_environment.get_template('index.html')
+    template = jinja_environment.get_template('templates/index.html')
     self.response.out.write(template.render({
         'cache_bust': random.randint(0, 150000)
     }))
@@ -61,7 +61,7 @@ class GetMapData(webapp2.RequestHandler):
     modis_landcover = ee.Image(
         'MCD12Q1/MCD12Q1_005_2001_01_01').select('Land_Cover_Type_1')
 
-    # A pallete to use for visualizing landcover images.
+    # A palette to use for visualizing landcover images.
     modis_landcover_palette = ','.join([
         'aec3d4',  # water
         '152106', '225129', '369b47', '30eb5b', '387242',  # forest
@@ -126,10 +126,10 @@ class GetMapData(webapp2.RequestHandler):
     )
 
     # Train a classifier using the aggregated data.
-    classifier = training.trainClassifier(
-        property_list=landsat_composite.bandNames(),
-        class_property='label',
-        classifier_name='FastNaiveBayes'
+    classifier = ee.Classifier.smileNaiveBayes().train(
+        features=training,
+        classProperty='label',
+        inputProperties=landsat_composite.bandNames(),
     )
 
     # Apply the classifier to the original composite.
@@ -139,9 +139,8 @@ class GetMapData(webapp2.RequestHandler):
     upsampled_visualization = upsampled.getMapId(
         modis_landcover_visualization_options)
     layers.append({
-        'mapid': upsampled_visualization['mapid'],
+        'urlFormat': upsampled_visualization['tile_fetcher'].url_format,
         'label': 'Upsampled landcover',
-        'token': upsampled_visualization['token']
     })
 
     self.response.out.write(json.dumps(layers))

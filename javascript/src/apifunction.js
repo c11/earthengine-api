@@ -9,7 +9,6 @@
  *
  * This class manages the algorithm dictionary and creates JavaScript functions
  * to apply each EE algorithm.
- *
  */
 
 goog.provide('ee.ApiFunction');
@@ -18,20 +17,23 @@ goog.require('ee.ComputedObject');
 goog.require('ee.Function');
 goog.require('ee.Types');
 goog.require('ee.data');
+goog.require('ee.rpc_node');
 goog.require('goog.object');
+goog.requireType('ee.Encodable');
+goog.requireType('ee.api');
 
 
 
 /**
  * Creates a function defined by the EE API.
  * @param {string} name The name of the function.
- * @param {ee.Function.Signature=} opt_signature
+ * @param {!ee.Function.Signature|!ee.data.AlgorithmSignature=} opt_signature
  *     The signature of the function. If unspecified, looked up dynamically.
  * @constructor
  * @extends {ee.Function}
  */
 ee.ApiFunction = function(name, opt_signature) {
-  if (!goog.isDef(opt_signature)) {
+  if (opt_signature === undefined) {
     return ee.ApiFunction.lookup(name);
   } else if (!(this instanceof ee.ApiFunction)) {
     return ee.ComputedObject.construct(ee.ApiFunction, arguments);
@@ -39,10 +41,10 @@ ee.ApiFunction = function(name, opt_signature) {
 
   /**
    * The signature of this API function.
-   * @type {ee.Function.Signature}
+   * @type {!ee.Function.Signature}
    * @private
    */
-  this.signature_ = /** @type {ee.Function.Signature} */(
+  this.signature_ = /** @type {!ee.Function.Signature} */ (
       goog.object.unsafeClone(opt_signature));
   this.signature_['name'] = name;
 };
@@ -56,7 +58,7 @@ goog.exportSymbol('ee.ApiFunction', ee.ApiFunction);
  *
  * @param {string} name The name of the API function to call.
  * @param {...*} var_args Positional arguments to pass to the function.
- * @return {ee.ComputedObject} An object representing the called function.
+ * @return {!ee.ComputedObject} An object representing the called function.
  *     If the signature specifies a recognized return type, the returned
  *     value will be cast to that type.
  * @export
@@ -71,8 +73,8 @@ ee.ApiFunction._call = function(name, var_args) {
  * Call a named API function with a dictionary of named arguments.
  *
  * @param {string} name The name of the API function to call.
- * @param {Object} namedArgs A dictionary of arguments to the function.
- * @return {ee.ComputedObject} An object representing the called function.
+ * @param {!Object} namedArgs A dictionary of arguments to the function.
+ * @return {!ee.ComputedObject} An object representing the called function.
  *     If the signature specifies a recognized return type, the returned
  *     value will be cast to that type.
  * @export
@@ -88,6 +90,13 @@ ee.ApiFunction.prototype.encode = function(encoder) {
 };
 
 
+/** @override @return {!ee.api.ValueNode} */
+ee.ApiFunction.prototype.encodeCloudInvocation = function(
+    /** !ee.Encodable.Serializer */ serializer, /** ? */ args) {
+  return ee.rpc_node.functionByName(this.signature_['name'], args);
+};
+
+
 /** @override */
 ee.ApiFunction.prototype.getSignature = function() {
   return this.signature_;
@@ -97,7 +106,7 @@ ee.ApiFunction.prototype.getSignature = function() {
 /**
  * A dictionary of functions defined by the API server.
  *
- * @type {Object.<ee.ApiFunction>}
+ * @type {?Object.<!ee.ApiFunction>}
  * @private
  */
 ee.ApiFunction.api_ = null;
@@ -107,14 +116,14 @@ ee.ApiFunction.api_ = null;
  * A set of algorithm names containing all algorithms that have been bound to
  * a function so far using importApi().
  *
- * @type {Object.<boolean>}
+ * @type {!Object.<boolean>}
  * @private
  */
 ee.ApiFunction.boundSignatures_ = {};
 
 
 /**
- * @return {Object.<ee.Function.Signature>} A map from the name to signature
+ * @return {!Object.<!ee.Function.Signature>} A map from the name to signature
  *     for all API functions.
  */
 ee.ApiFunction.allSignatures = function() {
@@ -128,7 +137,7 @@ ee.ApiFunction.allSignatures = function() {
 /**
  * Returns the functions that have not been bound using importApi() yet.
  *
- * @return {Object.<ee.ApiFunction>} A map from name to function.
+ * @return {!Object.<ee.ApiFunction>} A map from name to function.
  */
 ee.ApiFunction.unboundFunctions = function() {
   ee.ApiFunction.initialize();
@@ -142,11 +151,11 @@ ee.ApiFunction.unboundFunctions = function() {
  * Looks up an API function by name.
  *
  * @param {string} name The name of the function to get.
- * @return {ee.ApiFunction} The requested function.
+ * @return {!ee.ApiFunction} The requested function.
  * @export
  */
 ee.ApiFunction.lookup = function(name) {
-  var func = ee.ApiFunction.lookupInternal(name);
+  const func = ee.ApiFunction.lookupInternal(name);
   if (!func) {
     throw Error('Unknown built-in function name: ' + name);
   }
@@ -158,7 +167,7 @@ ee.ApiFunction.lookup = function(name) {
  * Looks up an API function by name, but doesn't throw an error.
  *
  * @param {string} name The name of the function to get.
- * @return {ee.ApiFunction} The requested function or null if it's not found.
+ * @return {!ee.ApiFunction} The requested function or null if it's not found.
  */
 ee.ApiFunction.lookupInternal = function(name) {
   ee.ApiFunction.initialize();
@@ -171,16 +180,16 @@ ee.ApiFunction.lookupInternal = function(name) {
  *
  * @param {function()=} opt_successCallback An optional success callback.
  *     If not supplied, the call is made synchronously.
- * @param {function(Error)=} opt_failureCallback An optional failure callback.
+ * @param {function(!Error)=} opt_failureCallback An optional failure callback.
  *     Only valid if opt_successCallback is specified.
  */
 ee.ApiFunction.initialize = function(opt_successCallback, opt_failureCallback) {
   if (!ee.ApiFunction.api_) {
     /**
-     * @param {ee.data.AlgorithmsRegistry} data
+     * @param {?ee.data.AlgorithmsRegistry} data
      * @param {string=} opt_error
      */
-    var callback = function(data, opt_error) {
+    const callback = function(data, opt_error) {
       if (opt_error) {
         if (opt_failureCallback) {
           opt_failureCallback(Error(opt_error));
@@ -190,19 +199,19 @@ ee.ApiFunction.initialize = function(opt_successCallback, opt_failureCallback) {
 
       ee.ApiFunction.api_ = goog.object.map(data, function(sig, name) {
         // Strip type parameters.
-        sig['returns'] = sig['returns'].replace(/<.*>/, '');
-        for (var i = 0; i < sig['args'].length; i++) {
-          sig['args'][i]['type'] = sig['args'][i]['type'].replace(/<.*>/, '');
+        sig.returns = sig.returns.replace(/<.*>/, '');
+        for (let i = 0; i < sig.args.length; i++) {
+          sig.args[i].type = sig.args[i].type.replace(/<.*>/, '');
         }
-        return new ee.ApiFunction(
-            name, /** @type {ee.Function.Signature} */(sig));
+        return new ee.ApiFunction(name, sig);
       });
       if (opt_successCallback) opt_successCallback();
     };
     if (opt_successCallback) {
       ee.data.getAlgorithms(callback);
     } else {
-      callback(ee.data.getAlgorithms());
+      callback(
+          /** @type {!ee.data.AlgorithmsRegistry} */ (ee.data.getAlgorithms()));
     }
   } else if (opt_successCallback) {
     // The API signatures have previously been initialized by some
@@ -224,7 +233,7 @@ ee.ApiFunction.reset = function() {
 /**
  * Adds all API functions that begin with a given prefix to a target class.
  *
- * @param {Function|Object} target The class to add to.
+ * @param {!Function|!Object} target The class to add to.
  * @param {string} prefix The prefix to search for in the signatures.
  * @param {string} typeName The name of the object's type. Functions whose
  *     first argument matches this type are bound as instance methods, and
@@ -234,24 +243,26 @@ ee.ApiFunction.reset = function() {
  */
 ee.ApiFunction.importApi = function(target, prefix, typeName, opt_prepend) {
   ee.ApiFunction.initialize();
-  var prepend = opt_prepend || '';
+  const prepend = opt_prepend || '';
   goog.object.forEach(ee.ApiFunction.api_, function(apiFunc, name) {
-    var parts = name.split('.');
+    const parts = name.split('.');
     if (parts.length == 2 && parts[0] == prefix) {
-      var fname = prepend + parts[1];
-      var signature = apiFunc.getSignature();
+      const fname = prepend + parts[1];
+      const signature = apiFunc.getSignature();
 
       // Mark signatures as used.
       ee.ApiFunction.boundSignatures_[name] = true;
 
       // Decide whether this is a static or an instance function.
-      var isInstance = false;
+      let isInstance = false;
       if (signature['args'].length) {
-        var firstArgType = signature['args'][0]['type'];
+        const firstArgType = signature['args'][0]['type'];
         isInstance = firstArgType != 'Object' &&
                      ee.Types.isSubtype(firstArgType, typeName);
       }
-      var destination = isInstance ? target.prototype : target;
+      // Assume we have a constructor Function if we get an instance method.
+      const destination =
+          isInstance ? /** @type {!Function} */(target).prototype : target;
 
       if (fname in destination && !destination[fname]['signature']) {
         // Don't overwrite client-defined functions.
@@ -259,6 +270,11 @@ ee.ApiFunction.importApi = function(target, prefix, typeName, opt_prepend) {
       }
 
       // Add the actual function
+      /**
+       * @param {*} var_args
+       * @return {!ee.ComputedObject}
+       * @this {*}
+       **/
       destination[fname] = function(var_args) {
         return apiFunc.callOrApply(
             isInstance ? this : undefined,
@@ -276,16 +292,16 @@ ee.ApiFunction.importApi = function(target, prefix, typeName, opt_prepend) {
 
 /**
  * Removes all methods added by importApi() from a target class.
- * @param {Function|Object} target The class to remove from.
+ * @param {!Function|!Object} target The class to remove from.
  */
 ee.ApiFunction.clearApi = function(target) {
-  var clear = function(target) {
-    for (var name in target) {
-      if (goog.isFunction(target[name]) && target[name]['signature']) {
+  const clear = function(target) {
+    for (const name in target) {
+      if (typeof target[name] === 'function' && target[name]['signature']) {
         delete target[name];
       }
     }
   };
   clear(target);
-  clear(target.prototype);
+  clear(/** @type {!Function} */ (target).prototype || {});
 };

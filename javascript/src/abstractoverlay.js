@@ -5,7 +5,7 @@ goog.require('goog.events.Event');
 goog.require('goog.events.EventTarget');
 goog.require('goog.structs.Set');
 
-goog.forwardDeclare('ee.data.Profiler');
+goog.requireType('ee.data.Profiler');
 
 
 
@@ -24,7 +24,7 @@ goog.forwardDeclare('ee.data.Profiler');
  * @ignore
  */
 ee.AbstractOverlay = function(url, mapId, token, opt_init, opt_profiler) {
-  goog.base(this);
+  ee.AbstractOverlay.base(this, 'constructor');
 
   // Store mapId and token.
   this.mapId = mapId;

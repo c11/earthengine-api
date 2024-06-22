@@ -1,17 +1,81 @@
-#!/usr/bin/env python
 """A TestCase that initializes the library with standard API methods."""
 
+import contextlib
+import json
+import os
+from typing import Any, Dict, Iterable, Optional
 
+from googleapiclient import discovery
 
 import unittest
-
 import ee
+from ee import _cloud_api_utils
+
+
+# Cached algorithms list
+_algorithms_cache: Optional[Dict[str, Any]] = None
+
+
+def GetAlgorithms() -> Dict[str, Any]:
+  """Returns a static version of the ListAlgorithms call.
+
+  After ApiTestCase.setUp is called, ee.data.getAlgorithms() is patched to use
+  this data. This function may be called explicitly if the test data is needed
+  at a time before the test case has started executing.
+  """
+  global _algorithms_cache
+  if _algorithms_cache is not None:
+    return _algorithms_cache
+  algorithms_path = os.path.join(
+     os.path.dirname(os.path.realpath(__file__)),
+     "tests/algorithms.json")
+  with open(algorithms_path, encoding='utf-8') as algorithms_file:
+    algorithms = json.load(algorithms_file)
+    _algorithms_cache = _cloud_api_utils.convert_algorithms(algorithms)
+  return _algorithms_cache
 
 
 class ApiTestCase(unittest.TestCase):
+  """A TestCase that initializes the library with standard API methods."""
+  last_download_call: Optional[Any]
+  last_thumb_call: Optional[Any]
+  last_table_call: Optional[Any]
+  last_mapid_call: Optional[Any]
 
   def setUp(self):
+    super().setUp()
+    # Store the state of ee.data before it is overwritten. We need to restore to
+    # this state in tearDown to prevent state leakage between tests.
+    self.old_get_algorithms = ee.data.getAlgorithms
+    self.old_compute_value = ee.data.computeValue
+    self.old_get_map_id = ee.data.getMapId
+    self.old_get_download_id = ee.data.getDownloadId
+    self.old_get_thumb_id = ee.data.getThumbId
+    self.old_get_table_download_id = ee.data.getTableDownloadId
+    # pylint: disable=protected-access
+    self.old_install_cloud_api_resource = ee.data._install_cloud_api_resource
+    self.old_cloud_api_resource = ee.data._cloud_api_resource
+    self.old_cloud_api_resource_raw = ee.data._cloud_api_resource_raw
+    self.old_initialized = ee.data._initialized
+    self.old_fetch_data_catalog_stac = ee.deprecation._FetchDataCatalogStac
+    # pylint: enable=protected-access
     self.InitializeApi()
+
+  def tearDown(self):
+    super().tearDown()
+    ee.data.getAlgorithms = self.old_get_algorithms
+    ee.data.computeValue = self.old_compute_value
+    ee.data.getMapId = self.old_get_map_id
+    ee.data.getDownloadId = self.old_get_download_id
+    ee.data.getThumbId = self.old_get_thumb_id
+    ee.data.getTableDownloadId = self.old_get_table_download_id
+    # pylint: disable=protected-access
+    ee.data._install_cloud_api_resource = self.old_install_cloud_api_resource
+    ee.data._cloud_api_resource = self.old_cloud_api_resource
+    ee.data._cloud_api_resource_raw = self.old_cloud_api_resource_raw
+    ee.data._initialized = self.old_initialized
+    ee.deprecation._FetchDataCatalogStac = self.old_fetch_data_catalog_stac
+    # pylint: enable=protected-access
 
   def InitializeApi(self):
     """Initializes the library with standard API methods.
@@ -22,1384 +86,88 @@ class ApiTestCase(unittest.TestCase):
     self.last_download_call = None
     self.last_thumb_call = None
     self.last_table_call = None
-
-    ee.data.send_ = self.MockSend
+    self.last_mapid_call = None
 
     ee.Reset()
+
+    ee.data._install_cloud_api_resource = lambda: None  # pylint: disable=protected-access
+    ee.data.getAlgorithms = GetAlgorithms
+    ee.data.computeValue = lambda x: {'value': 'fakeValue'}
+    ee.data.getMapId = self._MockMapId
+    ee.data.getDownloadId = self._MockDownloadUrl
+    ee.data.getThumbId = self._MockThumbUrl
+    ee.data.getTableDownloadId = self._MockTableDownload
+    # pylint: disable-next=protected-access
+    ee.deprecation._FetchDataCatalogStac = self._MockFetchDataCatalogStac
     ee.Initialize(None, '')
 
-  def MockSend(self, path, params, unused_method=None, unused_raw=None):
-    if path == '/algorithms':
-      return BUILTIN_FUNCTIONS
-    elif path == '/value':
-      return {'value': 'fakeValue'}
-    elif path == '/mapid':
-      return {'mapid': 'fakeMapId'}
-    elif path == '/download':
-      # Hang on to the call arguments.
-      self.last_download_call = {'url': path, 'data': params}
-      return {'docid': '1', 'token': '2'}
-    elif path == '/thumb':
-      # Hang on to the call arguments.
-      self.last_thumb_call = {'url': path, 'data': params}
-      return {'thumbid': '3', 'token': '4'}
-    elif path == '/table':
-      # Hang on to the call arguments.
-      self.last_table_call = {'url': path, 'data': params}
-      return {'docid': '5', 'token': '6'}
-    else:
-      raise Exception('Unexpected API call to %s with %s' % (path, params))
+  # We are mocking the url here so the unit tests are happy.
+  def _MockMapId(self, params: Dict[str, Any]) -> Dict[str, str]:
+    self.last_mapid_call = {'url': '/mapid', 'data': params}
+    return {'mapid': 'fakeMapId', 'token': 'fakeToken'}
 
-BUILTIN_FUNCTIONS = {
-    'Image.constant': {
-        'type': 'Algorithm',
-        'args': [
-            {
-                'description': '',
-                'name': 'value',
-                'type': 'Object'
-            }
-        ],
-        'description': '',
-        'returns': 'Image'
-    },
-    'Image.load': {
-        'type': 'Algorithm',
-        'args': [
-            {
-                'description': '',
-                'name': 'id',
-                'type': 'String'
-            },
-            {
-                'default': None,
-                'description': '',
-                'optional': True,
-                'name': 'version',
-                'type': 'Long'
-            }
-        ],
-        'description': '',
-        'returns': 'Image'
-    },
-    'Image.addBands': {
-        'type': 'Algorithm',
-        'args': [
-            {
-                'description': '',
-                'name': 'dstImg',
-                'type': 'Image'
-            },
-            {
-                'description': '',
-                'name': 'srcImg',
-                'type': 'Image'
-            },
-            {
-                'default': None,
-                'description': '',
-                'optional': True,
-                'name': 'names',
-                'type': 'List<String>'
-            },
-            {
-                'default': False,
-                'description': '',
-                'optional': True,
-                'name': 'overwrite',
-                'type': 'boolean'
-            }
-        ],
-        'description': '',
-        'returns': 'Image'
-    },
-    'Image.clip': {
-        'type': 'Algorithm',
-        'args': [
-            {
-                'description': '',
-                'name': 'input',
-                'type': 'Image'
-            },
-            {
-                'default': None,
-                'description': '',
-                'optional': True,
-                'name': 'geometry',
-                'type': 'Object'
-            }
-        ],
-        'description': '',
-        'returns': 'Image'
-    },
-    'Image.select': {
-        'type': 'Algorithm',
-        'args': [
-            {
-                'description': '',
-                'name': 'input',
-                'type': 'Image'
-            },
-            {
-                'description': '',
-                'name': 'bandSelectors',
-                'type': 'List<Object>'
-            },
-            {
-                'default': None,
-                'description': '',
-                'optional': True,
-                'name': 'newNames',
-                'type': 'List<String>'
-            }
-        ],
-        'description': '',
-        'returns': 'Image'
-    },
-    'Image.parseExpression': {
-        'type': 'Algorithm',
-        'args': [
-            {
-                'description': '',
-                'name': 'expression',
-                'type': 'String'
-            },
-            {
-                'default': 'image',
-                'description': '',
-                'optional': True,
-                'name': 'argName',
-                'type': 'String'
-            },
-            {
-                'default': None,
-                'description': '',
-                'optional': True,
-                'name': 'vars',
-                'type': 'List<String>'
-            }
-        ],
-        'description': '',
-        'returns': 'Algorithm'
-    },
-    'Feature': {
-        'type': 'Algorithm',
-        'args': [
-            {
-                'default': None,
-                'description': '',
-                'optional': True,
-                'name': 'geometry',
-                'type': 'Geometry'
-            },
-            {
-                'default': {},
-                'description': '',
-                'optional': True,
-                'name': 'metadata',
-                'type': 'Dictionary<Object>'
-            }
-        ],
-        'description': '',
-        'returns': 'Feature'
-    },
-    'Feature.get': {
-        'type': 'Algorithm',
-        'returns': '<any>',
-        'hidden': False,
-        'args': [
-            {
-                'type': 'Element',
-                'description': '',
-                'name': 'object'
-            },
-            {
-                'type': 'String',
-                'description': '',
-                'name': 'property'
-            }
-        ],
-        'description': ''
-    },
-    'Collection': {
-        'type': 'Algorithm',
-        'args': [
-            {
-                'description': '',
-                'name': 'features',
-                'type': 'List<Feature>'
-            }
-        ],
-        'description': '',
-        'returns': 'FeatureCollection'
-    },
-    'Collection.loadTable': {
-        'type': 'Algorithm',
-        'args': [
-            {
-                'default': None,
-                'description': '',
-                'optional': True,
-                'name': 'tableId',
-                'type': 'Object'
-            },
-            {
-                'default': None,
-                'description': '',
-                'optional': True,
-                'name': 'geometryColumn',
-                'type': 'String'
-            },
-            {
-                'default': None,
-                'description': '',
-                'optional': True,
-                'name': 'version',
-                'type': 'Long'
-            }
-        ],
-        'description': '',
-        'returns': 'FeatureCollection'
-    },
-    'Collection.filter': {
-        'type': 'Algorithm',
-        'args': [
-            {
-                'description': '',
-                'name': 'collection',
-                'type': 'FeatureCollection'
-            },
-            {
-                'description': '',
-                'name': 'filter',
-                'type': 'Filter'
-            }
-        ],
-        'description': '',
-        'returns': 'FeatureCollection'
-    },
-    'Collection.limit': {
-        'type': 'Algorithm',
-        'args': [
-            {
-                'description': '',
-                'name': 'collection',
-                'type': 'FeatureCollection'
-            },
-            {
-                'default': -1,
-                'description': '',
-                'optional': True,
-                'name': 'limit',
-                'type': 'int'
-            },
-            {
-                'default': None,
-                'description': '',
-                'optional': True,
-                'name': 'key',
-                'type': 'String'
-            },
-            {
-                'default': True,
-                'description': '',
-                'optional': True,
-                'name': 'ascending',
-                'type': 'boolean'
-            }
-        ],
-        'description': '',
-        'returns': 'FeatureCollection'
-    },
-    'Collection.map': {
-        'type': 'Algorithm',
-        'args': [
-            {
-                'description': '',
-                'name': 'collection',
-                'type': 'FeatureCollection'
-            },
-            {
-                'description': '',
-                'name': 'baseAlgorithm',
-                'type': 'Algorithm'
-            },
-            {
-                'default': None,
-                'description': '',
-                'optional': True,
-                'name': 'dynamicArgs',
-                'type': 'Dictionary<String>'
-            },
-            {
-                'default': {},
-                'description': '',
-                'optional': True,
-                'name': 'constantArgs',
-                'type': 'Dictionary<Object>'
-            },
-            {
-                'default': None,
-                'description': '',
-                'optional': True,
-                'name': 'destination',
-                'type': 'String'
-            }
-        ],
-        'description': '',
-        'returns': 'FeatureCollection'
-    },
-    'Collection.iterate': {
-        'type': 'Algorithm',
-        'args': [
-            {
-                'description': '',
-                'name': 'collection',
-                'type': 'FeatureCollection'
-            },
-            {
-                'description': '',
-                'name': 'function',
-                'type': 'Algorithm'
-            },
-            {
-                'default': None,
-                'description': '',
-                'optional': True,
-                'name': 'first',
-                'type': 'Object'
-            }
-        ],
-        'description': '',
-        'returns': 'Object',
-    },
-    'ImageCollection.load': {
-        'type': 'Algorithm',
-        'args': [
-            {
-                'description': '',
-                'name': 'id',
-                'type': 'String'
-            },
-            {
-                'default': None,
-                'description': '',
-                'optional': True,
-                'name': 'version',
-                'type': 'Long'
-            }
-        ],
-        'description': '',
-        'returns': 'ImageCollection'
-    },
-    'ImageCollection.fromImages': {
-        'type': 'Algorithm',
-        'args': [
-            {
-                'description': '',
-                'name': 'images',
-                'type': 'List<Image>'
-            }
-        ],
-        'description': '',
-        'returns': 'ImageCollection'
-    },
-    'ImageCollection.mosaic': {
-        'type': 'Algorithm',
-        'args': [
-            {
-                'description': '',
-                'name': 'collection',
-                'type': 'ImageCollection'
-            }
-        ],
-        'description': '',
-        'returns': 'Image'
-    },
-    'Collection.geometry': {
-        'type': 'Algorithm',
-        'args': [
-            {
-                'description': '',
-                'name': 'collection',
-                'type': 'FeatureCollection'
-            },
-            {
-                'default': {
-                    'type': 'ErrorMargin',
-                    'unit': 'meters',
-                    'value': 0
-                },
-                'description': '',
-                'optional': True,
-                'name': 'maxError',
-                'type': 'ErrorMargin'
-            }
-        ],
-        'description': '',
-        'returns': 'Geometry'
-    },
-    'Collection.draw': {
-        'type': 'Algorithm',
-        'args': [
-            {
-                'description': '',
-                'name': 'collection',
-                'type': 'FeatureCollection'
-            },
-            {
-                'description': '',
-                'name': 'color',
-                'type': 'String'
-            },
-            {
-                'default': 3,
-                'description': '',
-                'optional': True,
-                'name': 'pointRadius',
-                'type': 'int'
-            },
-            {
-                'default': 2,
-                'description': '',
-                'optional': True,
-                'name': 'strokeWidth',
-                'type': 'int'
-            }
-        ],
-        'description': '',
-        'returns': 'Image'
-    },
-    'DateRange': {
-        'type': 'Algorithm',
-        'args': [
-            {
-                'description': '',
-                'name': 'start',
-                'type': 'Date'
-            },
-            {
-                'default': None,
-                'description': '',
-                'optional': True,
-                'name': 'end',
-                'type': 'Date'
-            }
-        ],
-        'description': '',
-        'returns': 'DateRange'
-    },
-    'Date': {
-        'returns': 'Date',
-        'hidden': False,
-        'args': [
-            {
-                'type': 'Object',
-                'description': '',
-                'name': 'value'
-            },
-            {
-                'type': 'String',
-                'default': None,
-                'description': '',
-                'optional': True,
-                'name': 'timeZone'
-            }
-        ],
-        'type': 'Algorithm',
-        'description': ''
-    },
-    'ErrorMargin': {
-        'type': 'Algorithm',
-        'args': [
-            {
-                'description': '',
-                'name': 'value',
-                'type': 'Double'
-            },
-            {
-                'default': 'meters',
-                'description': '',
-                'optional': True,
-                'name': 'unit',
-                'type': 'String'
-            }
-        ],
-        'description': '',
-        'returns': 'ErrorMargin'
-    },
-    'Filter.intersects': {
-        'type': 'Algorithm',
-        'args': [
-            {
-                'default': None,
-                'description': '',
-                'optional': True,
-                'name': 'leftField',
-                'type': 'String'
-            },
-            {
-                'default': None,
-                'description': '',
-                'optional': True,
-                'name': 'rightValue',
-                'type': 'Object'
-            },
-            {
-                'default': None,
-                'description': '',
-                'optional': True,
-                'name': 'rightField',
-                'type': 'String'
-            },
-            {
-                'default': None,
-                'description': '',
-                'optional': True,
-                'name': 'leftValue',
-                'type': 'Object'
-            },
-            {
-                'default': {
-                    'type': 'ErrorMargin',
-                    'unit': 'meters',
-                    'value': 0.1
-                },
-                'description': '',
-                'optional': True,
-                'name': 'maxError',
-                'type': 'ErrorMargin'
-            }
-        ],
-        'description': '',
-        'returns': 'Filter'
-    },
-    'Filter.dateRangeContains': {
-        'type': 'Algorithm',
-        'args': [
-            {
-                'default': None,
-                'description': '',
-                'optional': True,
-                'name': 'leftField',
-                'type': 'String'
-            },
-            {
-                'default': None,
-                'description': '',
-                'optional': True,
-                'name': 'rightValue',
-                'type': 'Object'
-            },
-            {
-                'default': None,
-                'description': '',
-                'optional': True,
-                'name': 'rightField',
-                'type': 'String'
-            },
-            {
-                'default': None,
-                'description': '',
-                'optional': True,
-                'name': 'leftValue',
-                'type': 'Object'
-            }
-        ],
-        'description': '',
-        'returns': 'Filter'
-    },
-    'Filter.or': {
-        'type': 'Algorithm',
-        'args': [
-            {
-                'description': '',
-                'name': 'filters',
-                'type': 'List<Filter>'
-            }
-        ],
-        'description': '',
-        'returns': 'Filter'
-    },
-    'Filter.and': {
-        'type': 'Algorithm',
-        'args': [
-            {
-                'description': '',
-                'name': 'filters',
-                'type': 'List<Filter>'
-            }
-        ],
-        'description': '',
-        'returns': 'Filter'
-    },
-    'Filter.not': {
-        'type': 'Algorithm',
-        'args': [
-            {
-                'description': '',
-                'name': 'filter',
-                'type': 'Filter'
-            }
-        ],
-        'description': '',
-        'returns': 'Filter'
-    },
-    'Filter.equals': {
-        'type': 'Algorithm',
-        'args': [
-            {
-                'default': None,
-                'description': '',
-                'optional': True,
-                'name': 'leftField',
-                'type': 'String'
-            },
-            {
-                'default': None,
-                'description': '',
-                'optional': True,
-                'name': 'rightValue',
-                'type': 'Object'
-            },
-            {
-                'default': None,
-                'description': '',
-                'optional': True,
-                'name': 'rightField',
-                'type': 'String'
-            },
-            {
-                'default': None,
-                'description': '',
-                'optional': True,
-                'name': 'leftValue',
-                'type': 'Object'
-            }
-        ],
-        'description': '',
-        'returns': 'Filter'
-    },
-    'Filter.lessThan': {
-        'type': 'Algorithm',
-        'args': [
-            {
-                'default': None,
-                'description': '',
-                'optional': True,
-                'name': 'leftField',
-                'type': 'String'
-            },
-            {
-                'default': None,
-                'description': '',
-                'optional': True,
-                'name': 'rightValue',
-                'type': 'Object'
-            },
-            {
-                'default': None,
-                'description': '',
-                'optional': True,
-                'name': 'rightField',
-                'type': 'String'
-            },
-            {
-                'default': None,
-                'description': '',
-                'optional': True,
-                'name': 'leftValue',
-                'type': 'Object'
-            }
-        ],
-        'description': '',
-        'returns': 'Filter'
-    },
-    'Filter.greaterThan': {
-        'type': 'Algorithm',
-        'args': [
-            {
-                'default': None,
-                'description': '',
-                'optional': True,
-                'name': 'leftField',
-                'type': 'String'
-            },
-            {
-                'default': None,
-                'description': '',
-                'optional': True,
-                'name': 'rightValue',
-                'type': 'Object'
-            },
-            {
-                'default': None,
-                'description': '',
-                'optional': True,
-                'name': 'rightField',
-                'type': 'String'
-            },
-            {
-                'default': None,
-                'description': '',
-                'optional': True,
-                'name': 'leftValue',
-                'type': 'Object'
-            }
-        ],
-        'description': '',
-        'returns': 'Filter'
-    },
-    'Filter.stringContains': {
-        'type': 'Algorithm',
-        'args': [
-            {
-                'default': None,
-                'description': '',
-                'optional': True,
-                'name': 'leftField',
-                'type': 'String'
-            },
-            {
-                'default': None,
-                'description': '',
-                'optional': True,
-                'name': 'rightValue',
-                'type': 'Object'
-            },
-            {
-                'default': None,
-                'description': '',
-                'optional': True,
-                'name': 'rightField',
-                'type': 'String'
-            },
-            {
-                'default': None,
-                'description': '',
-                'optional': True,
-                'name': 'leftValue',
-                'type': 'Object'
-            }
-        ],
-        'description': '',
-        'returns': 'Filter'
-    },
-    'Filter.stringStartsWith': {
-        'type': 'Algorithm',
-        'args': [
-            {
-                'default': None,
-                'description': '',
-                'optional': True,
-                'name': 'leftField',
-                'type': 'String'
-            },
-            {
-                'default': None,
-                'description': '',
-                'optional': True,
-                'name': 'rightValue',
-                'type': 'Object'
-            },
-            {
-                'default': None,
-                'description': '',
-                'optional': True,
-                'name': 'rightField',
-                'type': 'String'
-            },
-            {
-                'default': None,
-                'description': '',
-                'optional': True,
-                'name': 'leftValue',
-                'type': 'Object'
-            }
-        ],
-        'description': '',
-        'returns': 'Filter'
-    },
-    'Filter.stringEndsWith': {
-        'type': 'Algorithm',
-        'args': [
-            {
-                'default': None,
-                'description': '',
-                'optional': True,
-                'name': 'leftField',
-                'type': 'String'
-            },
-            {
-                'default': None,
-                'description': '',
-                'optional': True,
-                'name': 'rightValue',
-                'type': 'Object'
-            },
-            {
-                'default': None,
-                'description': '',
-                'optional': True,
-                'name': 'rightField',
-                'type': 'String'
-            },
-            {
-                'default': None,
-                'description': '',
-                'optional': True,
-                'name': 'leftValue',
-                'type': 'Object'
-            }
-        ],
-        'description': '',
-        'returns': 'Filter'
-    },
-    'Filter.listContains': {
-        'type': 'Algorithm',
-        'args': [
-            {
-                'default': None,
-                'description': '',
-                'optional': True,
-                'name': 'leftField',
-                'type': 'String'
-            },
-            {
-                'default': None,
-                'description': '',
-                'optional': True,
-                'name': 'rightValue',
-                'type': 'Object'
-            },
-            {
-                'default': None,
-                'description': '',
-                'optional': True,
-                'name': 'rightField',
-                'type': 'String'
-            },
-            {
-                'default': None,
-                'description': '',
-                'optional': True,
-                'name': 'leftValue',
-                'type': 'Object'
-            }
-        ],
-        'description': '',
-        'returns': 'Filter'
-    },
-    'Image.mask': {
-        'type': 'Algorithm',
-        'args': [
-            {
-                'name': 'image',
-                'type': 'Image',
-                'description': ''
-            },
-            {
-                'name': 'mask',
-                'type': 'Image',
-                'description': '',
-                'optional': True,
-                'default': None
-            }
-        ],
-        'description': '',
-        'returns': 'Image'
-    },
-    # These two functions (Dictionary.get and Image.reduceRegion) are here
-    # to force the creation of the Dictionary class.
-    'Dictionary.get': {
-        'returns': 'Object',
-        'args': [
-            {
-                'type': 'Dictionary<Object>',
-                'description': '',
-                'name': 'map'
-                },
-            {
-                'type': 'String',
-                'description': '',
-                'name': 'property'
-                }
-            ],
-        'type': 'Algorithm',
-        'description': '',
-    },
-    'Image.reduceRegion': {
-        'returns': 'Dictionary<Object>',
-        'hidden': False,
-        'args': [
-            {
-                'type': 'Image',
-                'description': '',
-                'name': 'image'
-            },
-            {
-                'type': 'ReducerOld',
-                'description': '',
-                'name': 'reducer'
-            },
-            {
-                'default': None,
-                'type': 'Geometry',
-                'optional': True,
-                'description': '',
-                'name': 'geometry'
-            },
-            {
-                'default': None,
-                'type': 'Double',
-                'optional': True,
-                'description': '',
-                'name': 'scale'
-            },
-            {
-                'default': 'EPSG:4326',
-                'type': 'String',
-                'optional': True,
-                'description': '',
-                'name': 'crs'
-            },
-            {
-                'default': None,
-                'type': 'double[]',
-                'optional': True,
-                'description': '',
-                'name': 'crsTransform'
-            },
-            {
-                'default': False,
-                'type': 'boolean',
-                'optional': True,
-                'description': '',
-                'name': 'bestEffort'
-            }
-        ],
-        'type': 'Algorithm',
-        'description': ''
-    },
-    # Algorithms for testing ee.String.
-    'String': {
-        'returns': 'String',
-        'hidden': False,
-        'args': [
-            {
-                'type': 'Object',
-                'description': '',
-                'name': 'input'
-            }
-        ],
-        'type': 'Algorithm',
-        'description': ''
-    },
-    'String.cat': {
-        'returns': 'String',
-        'hidden': False,
-        'args': [
-            {
-                'type': 'String',
-                'description': '',
-                'name': 'string1'
-            },
-            {
-                'type': 'String',
-                'description': '',
-                'name': 'string2'
-            }
-        ],
-        'type': 'Algorithm',
-        'description': ''
-    },
-    # An algorithm for testing computed Geometries.
-    'Geometry.bounds': {
-        'returns': 'Geometry',
-        'hidden': False,
-        'args': [
-            {
-                'type': 'Geometry',
-                'description': '',
-                'name': 'geometry'
-            },
-            {
-                'default': None,
-                'type': 'ErrorMargin',
-                'optional': True,
-                'description': '',
-                'name': 'maxError'
-            },
-            {
-                'default': None,
-                'type': 'Projection',
-                'optional': True,
-                'description': '',
-                'name': 'proj'
-            }
-        ],
-        'type': 'Algorithm',
-        'description': ''
-    },
-    'Geometry.centroid': {
-        'returns': 'Geometry',
-        'args': [
-            {
-                'description': '',
-                'name': 'geometry',
-                'type': 'Geometry'
-            },
-            {
-                'default': None,
-                'description': '',
-                'optional': True,
-                'name': 'maxError',
-                'type': 'ErrorMargin'
-            },
-            {
-                'default': None,
-                'description': '',
-                'optional': True,
-                'name': 'proj',
-                'type': 'Projection'
-            }
-        ],
-        'description': '',
-        'type': 'Algorithm',
-    },
-    'GeometryConstructors.Point': {
-        'returns': 'Geometry',
-        'args': [
-            {
-                'name': 'coordinates',
-                'type': 'List<Number>',
-                'description': ''
-            },
-            {
-                'name': 'crs',
-                'type': 'Projection',
-                'description': '',
-                'optional': True,
-                'default': 'epsg:4326'
-            }
-        ],
-        'type': 'Algorithm',
-        'description': ''
-    },
-    'GeometryConstructors.LineString': {
-        'returns': 'Geometry',
-        'args': [
-            {
-                'name': 'coordinates',
-                'type': 'List<Object>',
-                'description': ''
-            },
-            {
-                'name': 'crs',
-                'type': 'Projection',
-                'description': '',
-                'optional': True,
-                'default': 'epsg:4326'
-            },
-            {
-                'default': None,
-                'description': '',
-                'optional': True,
-                'name': 'geodesic',
-                'type': 'Boolean'
-            },
-            {
-                'default': None,
-                'description': '',
-                'optional': True,
-                'name': 'maxError',
-                'type': 'ErrorMargin'
-            },
-        ],
-        'type': 'Algorithm',
-        'description': ''
-    },
-    # Element property setting, used by the client-side override.
-    'Element.set': {
-        'returns': 'Element',
-        'hidden': False,
-        'args': [
-            {
-                'type': 'Element',
-                'description': '',
-                'name': 'object'
-            },
-            {
-                'type': 'String',
-                'description': '',
-                'name': 'key'
-            },
-            {
-                'type': 'Object',
-                'description': '',
-                'name': 'value'
-            }
-        ],
-        'type': 'Algorithm',
-        'description': ''
-    },
-    'Element.setMulti': {
-        'returns': 'Element',
-        'hidden': False,
-        'args': [
-            {
-                'type': 'Element',
-                'description': '',
-                'name': 'object'
-            },
-            {
-                'type': 'Dictionary<Object>',
-                'description': '',
-                'name': 'properties'
-            }
-        ],
-        'type': 'Algorithm',
-        'description': ''
-    },
-    'Image.geometry': {
-        'returns': 'Geometry',
-        'args': [
-            {
-                'description': '',
-                'name': 'feature',
-                'type': 'Element'
-            },
-            {
-                'default': None,
-                'description': '',
-                'optional': True,
-                'name': 'maxError',
-                'type': 'ErrorMargin'
-            },
-            {
-                'default': None,
-                'description': '',
-                'optional': True,
-                'name': 'proj',
-                'type': 'Projection'
-            },
-            {
-                'default': None,
-                'description': '',
-                'optional': True,
-                'name': 'geodesics',
-                'type': 'Boolean'
-            }
-        ],
-        'type': 'Algorithm',
-        'description': '',
-    },
-    'Number.add': {
-        'returns': 'Number',
-        'hidden': False,
-        'args': [
-            {
-                'type': 'Number',
-                'description': '',
-                'name': 'left'
-            },
-            {
-                'type': 'Number',
-                'description': '',
-                'name': 'right'
-            }
-        ],
-        'type': 'Algorithm',
-        'description': ''
-    },
-    'Array': {
-        'returns': 'Array',
-        'hidden': False,
-        'args': [
-            {
-                'name': 'values',
-                'type': 'Object'
-            },
-            {
-                'name': 'pixelType',
-                'type': 'PixelType',
-                'optional': True,
-                'default': None
-            }
-        ],
-        'type': 'Algorithm',
-        'description': ''
-    },
-    'List.slice': {
-        'returns': 'List<Object>',
-        'args': [
-            {
-                'type': 'List<Object>',
-                'name': 'list'
-            },
-            {
-                'type': 'Integer',
-                'name': 'start'
-            },
-            {
-                'default': None,
-                'type': 'Integer',
-                'optional': True,
-                'name': 'end'
-            }
-        ],
-        'type': 'Algorithm',
-        'description': '',
-    },
-    'List.map': {
-        'type': 'Algorithm',
-        'args': [
-            {
-                'description': '',
-                'name': 'list',
-                'type': 'List'
-            },
-            {
-                'description': '',
-                'name': 'baseAlgorithm',
-                'type': 'Algorithm'
-            },
-        ],
-        'description': '',
-        'returns': 'List'
-    },
-    'Profile.getProfiles': {
-        'args': [
-            {
-                'description': '',
-                'name': 'ids',
-                'type': 'List<String>'
-            },
-            {
-                'default': 'text',
-                'description': '',
-                'name': 'format',
-                'optional': True,
-                'type': 'String'
-            }
-        ],
-        'description': '',
-        'returns': 'Object',
-        'type': 'Algorithm',
-        'hidden': True
-    },
-    'Profile.getProfilesInternal': {
-        'args': [
-            {
-                'description': '',
-                'name': 'ids',
-                'type': 'List<String>'
-            },
-            {
-                'default': 'text',
-                'description': '',
-                'name': 'format',
-                'optional': True,
-                'type': 'String'
-            }
-        ],
-        'description': '',
-        'returns': 'Object',
-        'type': 'Algorithm',
-        'hidden': True
-    },
-    'Projection': {
-        'returns': 'Projection',
-        'type': 'Algorithm',
-        'description': '',
-        'args': [
-            {
-                'name': 'crs',
-                'type': 'Object',
-                'description': ''
-            },
-            {
-                'name': 'transform',
-                'default': None,
-                'type': 'List<Number>',
-                'optional': True,
-                'description': ''
-            },
-            {
-                'name': 'transformWkt',
-                'default': None,
-                'type': 'String',
-                'optional': True,
-                'description': '',
-            }
-        ]
-    },
-    'Image.cast': {
-        'type': 'Algorithm',
-        'args': [
-            {
-                'description': '',
-                'name': 'image',
-                'type': 'Image'
-            },
-            {
-                'description': '',
-                'name': 'bandTypes',
-                'type': 'Dictionary'
-            },
-            {
-                'default': None,
-                'description': '',
-                'optional': True,
-                'name': 'bandOrder',
-                'type': 'List'
-            }
-        ],
-        'description': '',
-        'returns': 'Image'
-    },
-    'Describe': {
-        'type': 'Algorithm',
-        'args': [
-            {
-                'description': '',
-                'name': 'input',
-                'type': 'Object'
-            }
-        ],
-        'description': '',
-        'returns': 'Object',
-    },
-    'Image.rename': {
-        'type': 'Algorithm',
-        'args': [
-            {
-                'description': '',
-                'name': 'input',
-                'type': 'Image'
-            },
-            {
-                'description': '',
-                'name': 'names',
-                'type': 'List'
-            }
-        ],
-        'description': '',
-        'returns': 'Image'
-    },
-    'Dictionary': {
-        'type': 'Algorithm',
-        'args': [
-            {
-                'description': '',
-                'name': 'input',
-                'optional': 'true',
-                'type': 'Object'
-            }
-        ],
-        'returns': 'Dictionary'
-    },
-}
+  def _MockDownloadUrl(self, params: Dict[str, Any]) -> Dict[str, str]:
+    self.last_download_call = {'url': '/download', 'data': params}
+    return {'docid': '1', 'token': '2'}
+
+  def _MockThumbUrl(
+      self,
+      params: Dict[str, Any],
+      # pylint: disable-next=invalid-name
+      thumbType: Optional[str] = None,
+  ) -> Dict[str, str]:
+    del thumbType  # Unused.
+    # Hang on to the call arguments.
+    self.last_thumb_call = {'url': '/thumb', 'data': params}
+    return {'thumbid': '3', 'token': '4'}
+
+  def _MockTableDownload(self, params: Dict[str, Any]) -> Dict[str, str]:
+    self.last_table_call = {'url': '/table', 'data': params}
+    return {'docid': '5', 'token': '6'}
+
+  def _MockFetchDataCatalogStac(self) -> Dict[str, Any]:
+    return {}
+
+
+def _GenerateCloudApiResource(mock_http: Any, raw: Any) -> discovery.Resource:
+  """Returns a Cloud API resource for testing."""
+  discovery_doc_path = os.path.join(
+     os.path.dirname(os.path.realpath(__file__)),
+     "tests/cloud_api_discovery_document.json")
+  with open(discovery_doc_path) as discovery_doc_file:
+    discovery_doc_str = discovery_doc_file.read()
+  return _cloud_api_utils.build_cloud_resource_from_document(
+      json.loads(discovery_doc_str),
+      http_transport=mock_http,
+      headers_supplier=ee.data._make_request_headers,  # pylint: disable=protected-access
+      response_inspector=ee.data._handle_profiling_response,  # pylint: disable=protected-access
+      raw=raw,
+  )
+
+
+@contextlib.contextmanager  # pytype: disable=wrong-arg-types
+def UsingCloudApi(
+    cloud_api_resource: Optional[Any] = None,
+    cloud_api_resource_raw: Optional[Any] = None,
+    mock_http: Optional[Any] = None,
+) -> Iterable[Any]:
+  """Returns a context manager under which the Cloud API is enabled."""
+  old_cloud_api_resource = ee.data._cloud_api_resource  # pylint: disable=protected-access
+  old_cloud_api_resource_raw = ee.data._cloud_api_resource_raw  # pylint: disable=protected-access
+  old_initialized = ee.data._initialized  # pylint: disable=protected-access
+  try:
+    if cloud_api_resource is None:
+      cloud_api_resource = _GenerateCloudApiResource(mock_http, False)
+    if cloud_api_resource_raw is None:
+      cloud_api_resource_raw = _GenerateCloudApiResource(mock_http, True)
+    ee.data._cloud_api_resource = cloud_api_resource  # pylint: disable=protected-access
+    ee.data._cloud_api_resource_raw = cloud_api_resource_raw  # pylint: disable=protected-access
+    ee.data._initialized = True  # pylint: disable=protected-access
+    yield
+  finally:
+    ee.data._cloud_api_resource = old_cloud_api_resource  # pylint: disable=protected-access
+    ee.data._cloud_api_resource_raw = old_cloud_api_resource_raw  # pylint: disable=protected-access
+    ee.data._initialized = old_initialized  # pylint: disable=protected-access
 
 
 # A sample of encoded EE API JSON, used by SerializerTest and DeserializerTest.
@@ -1462,7 +230,7 @@ ENCODED_JSON_SAMPLE = {
             5,
             7,
             3.4,
-            2.5,
+            112233445566778899,
             'hello',
             {'type': 'ValueRef', 'value': '0'},
             {'type': 'ValueRef', 'value': '1'},
@@ -1475,3 +243,133 @@ ENCODED_JSON_SAMPLE = {
     ],
     'value': {'type': 'ValueRef', 'value': '7'}
 }
+
+# A sample of encoded EE API JSON for the Cloud API, used by SerializerTest.
+ENCODED_CLOUD_API_JSON_SAMPLE = {
+    'values': {
+        '0': {
+            'arrayValue': {
+                'values': [
+                    {'constantValue': None},
+                    {'constantValue': True},
+                    {'constantValue': 5},
+                    {'constantValue': 7},
+                    {'constantValue': 3.4},
+                    {'integerValue': '112233445566778899'},
+                    {'constantValue': 'hello'},
+                    {'functionInvocationValue': {
+                        'functionName': 'Date',
+                        'arguments': {'value': {'constantValue': 1234567890000}}
+                    }},
+                    {'functionInvocationValue': {
+                        'functionName': 'GeometryConstructors.LineString',
+                        'arguments': {
+                            'crs': {'functionInvocationValue': {
+                                'functionName': 'Projection',
+                                'arguments': {
+                                    'crs': {'constantValue': 'SR-ORG:6974'}}
+                            }},
+                            'coordinates': {'arrayValue': {'values': [
+                                {'valueReference': '1'},
+                                {'constantValue': [3, 4]}
+                            ]}}
+                        }}},
+                    {'functionInvocationValue': {
+                        'functionName': 'GeometryConstructors.Polygon',
+                        'arguments': {
+                            'coordinates': {'arrayValue': {'values': [
+                                {'arrayValue': {'values': [
+                                    {'valueReference': '2'},
+                                    {'constantValue': [10, 0]},
+                                    {'constantValue': [10, 10]},
+                                    {'constantValue': [0, 10]},
+                                    {'valueReference': '2'}]}},
+                                {'constantValue':
+                                 [[5, 6], [7, 6], [7, 8], [5, 8]]},
+                                {'arrayValue': {'values': [
+                                    {'constantValue': [1, 1]},
+                                    {'constantValue': [2, 1]},
+                                    {'constantValue': [2, 2]},
+                                    {'valueReference': '1'}]}}
+                            ]}},
+                            'evenOdd': {'constantValue': True}}}},
+                    {'bytesValue': 'aGVsbG8='},
+                    {'dictionaryValue': {
+                        'values': {
+                            'baz': {'valueReference': '3'},
+                            'foo': {'constantValue': 'bar'},
+                        }
+                    }},
+                    {'valueReference': '3'},
+                    {'functionDefinitionValue': {
+                        'argumentNames': ['x', 'y'],
+                        'body': '4'}
+                    }
+                ]}},
+        '1': {'constantValue': [1, 2]},
+        '2': {'constantValue': [0, 0]},
+        '3': {'functionInvocationValue': {
+            'functionName': 'String.cat',
+            'arguments': {
+                'string1': {'constantValue': 'x'},
+                'string2': {'constantValue': 'y'}
+            }}},
+        '4': {'argumentReference': 'y'},
+    },
+    'result': '0'
+}
+ENCODED_CLOUD_API_JSON_SAMPLE_PRETTY = {
+    'arrayValue': {
+        'values': [
+            {'constantValue': None},
+            {'constantValue': True},
+            {'constantValue': 5},
+            {'constantValue': 7},
+            {'constantValue': 3.4},
+            {'integerValue': '112233445566778899'},
+            {'constantValue': 'hello'},
+            {'functionInvocationValue': {
+                'functionName': 'Date',
+                'arguments': {'value': {'constantValue': 1234567890000}}
+            }},
+            {'functionInvocationValue': {
+                'functionName': 'GeometryConstructors.LineString',
+                'arguments': {
+                    'crs': {'functionInvocationValue': {
+                        'functionName': 'Projection',
+                        'arguments': {
+                            'crs': {'constantValue': 'SR-ORG:6974'}}
+                    }},
+                    'coordinates': {'constantValue': [[1, 2], [3, 4]]}
+                }}},
+            {'functionInvocationValue': {
+                'functionName': 'GeometryConstructors.Polygon',
+                'arguments': {
+                    'coordinates': {
+                        'constantValue':
+                        [[[0, 0], [10, 0], [10, 10], [0, 10], [0, 0]],
+                         [[5, 6], [7, 6], [7, 8], [5, 8]],
+                         [[1, 1], [2, 1], [2, 2], [1, 2]]]},
+                    'evenOdd': {'constantValue': True}}}},
+            {'bytesValue': 'aGVsbG8='},
+            {'dictionaryValue': {
+                'values': {
+                    'baz': {'functionInvocationValue': {
+                        'functionName': 'String.cat',
+                        'arguments': {
+                            'string1': {'constantValue': 'x'},
+                            'string2': {'constantValue': 'y'}
+                        }}},
+                    'foo': {'constantValue': 'bar'},
+                }}},
+            {'functionInvocationValue': {
+                'functionName': 'String.cat',
+                'arguments': {
+                    'string1': {'constantValue': 'x'},
+                    'string2': {'constantValue': 'y'}
+                }}},
+            {'functionDefinitionValue': {
+                'argumentNames': ['x', 'y'],
+                'body': {'argumentReference': 'y'}}
+            }
+        ]}}

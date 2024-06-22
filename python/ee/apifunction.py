@@ -1,4 +1,3 @@
-#!/usr/bin/env python
 """A class for representing built-in EE API Function.
 
 Earth Engine can dynamically produce a JSON array listing the
@@ -11,62 +10,66 @@ This class manages the algorithm dictionary and creates JavaScript functions
 to apply each EE algorithm.
 """
 
-
-
 # Using lowercase function naming to match the JavaScript names.
 # pylint: disable=g-bad-name
+
+from __future__ import annotations
 
 import copy
 import keyword
 import re
+from typing import Any, Dict, Optional, Set, Type
 
-from . import computedobject
-from . import data
-from . import deprecation
-from . import ee_exception
-from . import ee_types
-from . import function
+from ee import _utils
+from ee import computedobject
+from ee import data
+from ee import deprecation
+from ee import ee_exception
+from ee import ee_types
+from ee import function
 
 
 class ApiFunction(function.Function):
   """An object representing an EE API Function."""
+  _signature: Dict[str, Any]
 
   # A dictionary of functions defined by the API server.
-  _api = None
+  _api: Dict[str, ApiFunction] = {}
 
   # A set of algorithm names containing all algorithms that have been bound to
   # a function so far using importApi().
-  _bound_signatures = set()
+  _bound_signatures: Set[str] = set()
 
-  def __init__(self, name, opt_signature=None):
+  @_utils.accept_opt_prefix('opt_signature')
+  def __init__(self, name: str, signature: Optional[Dict[str, Any]] = None):
     """Creates a function defined by the EE API.
 
     Args:
       name: The name of the function.
-      opt_signature: The signature of the function. If unspecified,
-          looked up dynamically.
+      signature: The signature of the function. If unspecified, looked up
+        dynamically.
     """
-    if opt_signature is None:
-      opt_signature = ApiFunction.lookup(name).getSignature()
+    if signature is None:
+      signature = ApiFunction.lookup(name).getSignature()
 
     # The signature of this API function.
-    self._signature = copy.deepcopy(opt_signature)
+    self._signature = copy.deepcopy(signature)
     self._signature['name'] = name
 
-  def __eq__(self, other):
+  def __eq__(self, other: Any) -> bool:
     return (isinstance(other, ApiFunction) and
             self.getSignature() == other.getSignature())
 
   # For Python 3, __hash__ is needed because __eq__ is defined.
   # See https://docs.python.org/3/reference/datamodel.html#object.__hash__
-  def __hash__(self):
+  def __hash__(self) -> int:
     return hash(computedobject.ComputedObject.freeze(self.getSignature()))
 
-  def __ne__(self, other):
+  def __ne__(self, other: Any) -> bool:
     return not self.__eq__(other)
 
   @classmethod
-  def call_(cls, name, *args, **kwargs):
+  def call_(cls, name: str, *args: Any, **kwargs: Any) -> Any:
     """Call a named API function with positional and keyword arguments.
 
     Args:
@@ -81,7 +84,7 @@ class ApiFunction(function.Function):
     return cls.lookup(name).call(*args, **kwargs)
 
   @classmethod
-  def apply_(cls, name, named_args):
+  def apply_(cls, name: str, named_args: Dict[str, Any]) -> Any:
     """Call a named API function with a dictionary of named arguments.
 
     Args:
@@ -94,29 +97,35 @@ class ApiFunction(function.Function):
     """
     return cls.lookup(name).apply(named_args)
 
-  def encode(self, unused_encoder):
+  def encode_invocation(self, encoder: Any) -> Any:
+    del encoder  # Unused.
     return self._signature['name']
 
-  def getSignature(self):
+  def encode_cloud_invocation(self, encoder: Any) -> Dict[str, Any]:
+    del encoder  # Unused.
+    return {'functionName': self._signature['name']}
+
+  def getSignature(self) -> Dict[str, Any]:
     """Returns a description of the interface provided by this function."""
     return self._signature
 
   @classmethod
-  def allSignatures(cls):
+  def allSignatures(cls) -> Dict[str, Dict[str, Any]]:
     """Returns a map from the name to signature for all API functions."""
     cls.initialize()
     return dict([(name, func.getSignature())
                  for name, func in cls._api.items()])
 
   @classmethod
-  def unboundFunctions(cls):
+  def unboundFunctions(cls) -> Dict[str, Any]:
     """Returns the functions that have not been bound using importApi() yet."""
     cls.initialize()
     return dict([(name, func) for name, func in cls._api.items()
                  if name not in cls._bound_signatures])
 
+  # TODO(user): Any -> ApiFunction for the return type.
   @classmethod
-  def lookup(cls, name):
+  def lookup(cls, name: str) -> Any:
     """Looks up an API function by name.
 
     Args:
@@ -126,13 +135,14 @@ class ApiFunction(function.Function):
       The requested ApiFunction.
     """
     result = cls.lookupInternal(name)
+    # TODO(user): name -> result?
     if not name:
       raise ee_exception.EEException(
           'Unknown built-in function name: %s' % name)
     return result
 
   @classmethod
-  def lookupInternal(cls, name):
+  def lookupInternal(cls, name: str) -> Optional[ApiFunction]:
     """Looks up an API function by name.
 
     Args:
@@ -145,7 +155,7 @@ class ApiFunction(function.Function):
     return cls._api.get(name, None)
 
   @classmethod
-  def initialize(cls):
+  def initialize(cls) -> None:
     """Initializes the list of signatures from the Earth Engine front-end."""
     if not cls._api:
       signatures = data.getAlgorithms()
@@ -159,26 +169,33 @@ class ApiFunction(function.Function):
       cls._api = api
 
   @classmethod
-  def reset(cls):
+  def reset(cls) -> None:
     """Clears the API functions list so it will be reloaded from the server."""
-    cls._api = None
+    cls._api = {}
     cls._bound_signatures = set()
 
   @classmethod
-  def importApi(cls, target, prefix, type_name, opt_prepend=None):
+  @_utils.accept_opt_prefix('opt_prepend')
+  def importApi(
+      cls,
+      target: Any,
+      prefix: str,
+      type_name: str,
+      prepend: Optional[str] = None,
+  ) -> None:
     """Adds all API functions that begin with a given prefix to a target class.
 
     Args:
       target: The class to add to.
       prefix: The prefix to search for in the signatures.
-      type_name: The name of the object's type. Functions whose
-          first argument matches this type are bound as instance methods, and
-          those whose first argument doesn't match are bound as static methods.
-      opt_prepend: An optional string to prepend to the names of the
-          added functions.
+      type_name: The name of the object's type. Functions whose first argument
+        matches this type are bound as instance methods, and those whose first
+        argument doesn't match are bound as static methods.
+      prepend: An optional string to prepend to the names of the added
+        functions.
     """
     cls.initialize()
-    prepend = opt_prepend or ''
+    prepend = prepend or ''
     for name, api_func in cls._api.items():
       parts = name.split('.')
       if len(parts) == 2 and parts[0] == prefix:
@@ -199,18 +216,13 @@ class ApiFunction(function.Function):
         # Create a new function so we can attach properties to it.
         def MakeBoundFunction(func):
           # We need the lambda to capture "func" from the enclosing scope.
-          return lambda *args, **kwargs: func.call(*args, **kwargs)  # pylint: disable=unnecessary-lambda
+          # pylint: disable-next=unnecessary-lambda
+          return lambda *args, **kwargs: func.call(*args, **kwargs)
         bound_function = MakeBoundFunction(api_func)
 
         # Add docs.
-        try:
-          setattr(bound_function, '__name__', str(name))
-        except TypeError:
-          setattr(bound_function, '__name__', name.encode('utf8'))
-        try:
-          bound_function.__doc__ = str(api_func)
-        except UnicodeEncodeError:
-          bound_function.__doc__ = api_func.__str__().encode('utf8')
+        setattr(bound_function, '__name__', str(name))
+        bound_function.__doc__ = str(api_func)
 
         # Attach the signature object for documentation generators.
         bound_function.signature = signature
@@ -219,6 +231,11 @@ class ApiFunction(function.Function):
         if signature.get('deprecated'):
           deprecated_decorator = deprecation.Deprecated(signature['deprecated'])
           bound_function = deprecated_decorator(bound_function)
+
+        # Mark as preview if needed.
+        if signature.get('preview'):
+          bound_function.__doc__ += (
+              '\nPREVIEW: This function is preview or internal only.')
 
         # Decide whether this is a static or an instance function.
         is_instance = (signature['args'] and
@@ -231,7 +248,7 @@ class ApiFunction(function.Function):
         setattr(target, fname, bound_function)
 
   @staticmethod
-  def clearApi(target):
+  def clearApi(target: Type[Any]) -> None:
     """Removes all methods added by importApi() from a target class.
 
     Args:

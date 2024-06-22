@@ -11,14 +11,16 @@ goog.provide('ee.Filter');
 
 goog.require('ee.ApiFunction');
 goog.require('ee.ComputedObject');
+goog.require('ee.Geometry');
 goog.require('ee.arguments');
 goog.require('goog.array');
 goog.require('goog.string');
 
 
+goog.requireType('ee.FeatureCollection');
 
 /**
- * Constructs a new filter. This constuctor accepts the following args:
+ * Constructs a new filter. This constructor accepts the following args:
  *    - Another filter.
  *    - A list of filters (which are implicitly ANDed together).
  *    - A ComputedObject returning a filter. Users shouldn't be making these;
@@ -49,27 +51,27 @@ ee.Filter = function(opt_filter) {
    */
   this.filter_;
 
-  if (goog.isArray(opt_filter)) {
+  if (Array.isArray(opt_filter)) {
     if (opt_filter.length == 0) {
       throw Error('Empty list specified for ee.Filter().');
     } else if (opt_filter.length == 1) {
       return new ee.Filter(opt_filter[0]);
     } else {
       // AND filters together.
-      goog.base(this, new ee.ApiFunction('Filter.and'), {
+      ee.Filter.base(this, 'constructor', new ee.ApiFunction('Filter.and'), {
         'filters': opt_filter
       });
       this.filter_ = opt_filter;
     }
   } else if (opt_filter instanceof ee.ComputedObject) {
     // Actual filter object.
-    goog.base(this, opt_filter.func, opt_filter.args, opt_filter.varName);
+    ee.Filter.base(this, 'constructor', opt_filter.func, opt_filter.args, opt_filter.varName);
     this.filter_ = [opt_filter];
-  } else if (!goog.isDef(opt_filter)) {
+  } else if (opt_filter === undefined) {
     // A silly call with no arguments left for backward-compatibility.
     // Encoding such a filter is expected to fail, but it can be composed
     // by calling the various methods that end up in append_().
-    goog.base(this, null, null);
+    ee.Filter.base(this, 'constructor', null, null);
     this.filter_ = [];
   } else {
     throw Error('Invalid argument specified for ee.Filter(): ' + opt_filter);
@@ -128,7 +130,7 @@ ee.Filter.functionNames_ = {
  *     - another fully constructed ee.Filter,
  *     - a ComputedObject producing a filter,
  *     - a list of 1 or 2.
- * @return {ee.Filter} A new filter that is the combination of both.
+ * @return {!ee.Filter} A new filter that is the combination of both.
  * @private
  */
 ee.Filter.prototype.append_ = function(newFilter) {
@@ -146,8 +148,8 @@ ee.Filter.prototype.append_ = function(newFilter) {
 
 
 /**
- * Returns the opposite of this filter, i.e. a filter that will match iff
- * this filter doesn't.
+ * Returns the opposite of the input filter, i.e. the resulting filter will
+ * match if and only if the input filter doesn't match.
  * @return {ee.Filter} The negated filter.
  * @export
  */
@@ -165,7 +167,7 @@ ee.Filter.prototype.not = function() {
  * @export
  */
 ee.Filter.eq = function(name, value) {
-  var args = ee.arguments.extract(ee.Filter.eq, arguments);
+  var args = ee.arguments.extractFromFunction(ee.Filter.eq, arguments);
   return /** @type {ee.Filter} */(
       ee.ApiFunction._call('Filter.equals', args['name'], args['value']));
 };
@@ -180,7 +182,7 @@ ee.Filter.eq = function(name, value) {
  * @export
  */
 ee.Filter.neq = function(name, value) {
-  var args = ee.arguments.extract(ee.Filter.neq, arguments);
+  var args = ee.arguments.extractFromFunction(ee.Filter.neq, arguments);
   return ee.Filter.eq(args['name'], args['value']).not();
 };
 
@@ -194,7 +196,7 @@ ee.Filter.neq = function(name, value) {
  * @export
  */
 ee.Filter.lt = function(name, value) {
-  var args = ee.arguments.extract(ee.Filter.lt, arguments);
+  var args = ee.arguments.extractFromFunction(ee.Filter.lt, arguments);
   return /** @type {ee.Filter} */(
       ee.ApiFunction._call('Filter.lessThan', args['name'], args['value']));
 };
@@ -209,7 +211,7 @@ ee.Filter.lt = function(name, value) {
  * @export
  */
 ee.Filter.gte = function(name, value) {
-  var args = ee.arguments.extract(ee.Filter.gte, arguments);
+  var args = ee.arguments.extractFromFunction(ee.Filter.gte, arguments);
   return ee.Filter.lt(args['name'], args['value']).not();
 };
 
@@ -223,7 +225,7 @@ ee.Filter.gte = function(name, value) {
  * @export
  */
 ee.Filter.gt = function(name, value) {
-  var args = ee.arguments.extract(ee.Filter.gt, arguments);
+  var args = ee.arguments.extractFromFunction(ee.Filter.gt, arguments);
   return /** @type {ee.Filter} */(
       ee.ApiFunction._call('Filter.greaterThan', args['name'], args['value']));
 };
@@ -238,7 +240,7 @@ ee.Filter.gt = function(name, value) {
  * @export
  */
 ee.Filter.lte = function(name, value) {
-  var args = ee.arguments.extract(ee.Filter.lte, arguments);
+  var args = ee.arguments.extractFromFunction(ee.Filter.lte, arguments);
   return ee.Filter.gt(args['name'], args['value']).not();
 };
 
@@ -270,18 +272,18 @@ ee.Filter.or = function(var_args) {
 
 
 /**
- * Filter images by date. The start and end may be a Date, numbers
+ * Filter a collection by date range. The start and end may be Dates, numbers
  * (interpreted as milliseconds since 1970-01-01T00:00:00Z), or strings (such
- * as '1996-01-01T08:00').
+ * as '1996-01-01T08:00'). Based on 'system:time_start' property.
  *
- * @param {Date|string|number} start The inclusive start date.
- * @param {Date|string|number=} opt_end The optional exclusive end date. If not
- *     specified, a 1-millisecond range starting at 'start' is created.
- * @return {ee.Filter} The constructed filter.
+ * @param {!Date|string|number} start The start date (inclusive).
+ * @param {?Date|string|number=} opt_end The end date (exclusive). Optional. If
+ *     not specified, a 1-millisecond range starting at 'start' is created.
+ * @return {?ee.Filter} The constructed filter.
  * @export
  */
 ee.Filter.date = function(start, opt_end) {
-  var args = ee.arguments.extract(ee.Filter.date, arguments);
+  var args = ee.arguments.extractFromFunction(ee.Filter.date, arguments);
   var range = ee.ApiFunction._call('DateRange', args['start'], args['end']);
   var filter = ee.ApiFunction._apply('Filter.dateRangeContains', {
     'leftValue': range,
@@ -307,7 +309,7 @@ ee.Filter.date = function(start, opt_end) {
  */
 ee.Filter.inList = function(
     opt_leftField, opt_rightValue, opt_rightField, opt_leftValue) {
-  var args = ee.arguments.extract(ee.Filter.inList, arguments);
+  var args = ee.arguments.extractFromFunction(ee.Filter.inList, arguments);
   // Implement this in terms of listContains, with the arguments switched.
   // In listContains the list is on the left side, while in inList it's on
   // the right.
@@ -322,20 +324,25 @@ ee.Filter.inList = function(
 
 
 /**
- * Filter on bounds.
+ * Creates a filter that passes if the object's geometry intersects the
+ * given geometry.
  *
- * @param {ee.Geometry|ee.ComputedObject|ee.FeatureCollection} geometry
- *     The geometry, feature or collection to filter to.
- * @param {number|ee.ComputedObject=} opt_errorMargin An optional error margin.
+ * Caution: providing a large or complex collection as the `geometry` argument
+ * can result in poor performance. Collating the geometry of collections does
+ * not scale well; use the smallest collection (or geometry) that is required to
+ * achieve the desired outcome.
+ * @param {!ee.Geometry|!ee.ComputedObject|!ee.FeatureCollection} geometry
+ *     The geometry, feature or collection to intersect with.
+ * @param {number|!ee.ComputedObject=} opt_errorMargin An optional error margin.
  *     If a number, interpreted as sphere surface meters.
- * @return {ee.Filter} The modified filter.
+ * @return {!ee.Filter} The constructed filter.
  * @export
  */
 ee.Filter.bounds = function(geometry, opt_errorMargin) {
   // Invoke geometry promotion then manually promote to a Feature.
   // TODO(user): Discuss whether filters should go back to working
   //              directly on geometries.
-  return /** @type {ee.Filter} */ (
+  return /** @type {!ee.Filter} */ (
       ee.ApiFunction._apply('Filter.intersects', {
         'leftField': '.all',
         'rightValue': ee.ApiFunction._call('Feature', geometry),
@@ -386,307 +393,4 @@ ee.Filter.metadata = function(name, operator, value) {
       ee.ApiFunction._call(funcName, name, value));
 
   return negated ? filter.not() : filter;
-};
-
-
-/**
- * Filter on metadata containing the given string.
- *
- * @param {string} name The property name to filter on.
- * @param {string} value The value to compare against.
- * @return {ee.Filter} The constructed filter.
- * @export
- * @deprecated Use ee.Filter.stringContains().
- */
-ee.Filter.contains = function(name, value) {
-  return /** @type {ee.Filter} */(
-      ee.ApiFunction._call('Filter.stringContains', name, value));
-};
-
-
-/**
- * Filter on metadata not containing the given string.
- *
- * @param {string} name The property name to filter on.
- * @param {string} value The value to compare against.
- * @return {ee.Filter} The constructed filter.
- * @export
- * @deprecated Use ee.Filter.stringStartsWith(...).not().
- */
-ee.Filter.not_contains = function(name, value) {
-  return ee.Filter.contains(name, value).not();
-};
-
-
-/**
- * Filter on metadata begining with the given string.
- *
- * @param {string} name The property name to filter on.
- * @param {string} value The value to compare against.
- * @return {ee.Filter} The constructed filter.
- * @export
- * @deprecated Use ee.Filter.stringStartsWith().
- */
-ee.Filter.starts_with = function(name, value) {
-  return /** @type {ee.Filter} */(
-      ee.ApiFunction._call('Filter.stringStartsWith', name, value));
-};
-
-
-/**
- * Filter on metadata not begining with the given string.
- *
- * @param {string} name The property name to filter on.
- * @param {string} value The value to compare against.
- * @return {ee.Filter} The constructed filter.
- * @export
- * @deprecated Use ee.Filter.stringStartsWith(...).not().
- */
-ee.Filter.not_starts_with = function(name, value) {
-  return ee.Filter.starts_with(name, value).not();
-};
-
-
-/**
- * Filter on metadata ending with the given string.
- *
- * @param {string} name The property name to filter on.
- * @param {string} value The value to compare against.
- * @return {ee.Filter} The constructed filter.
- * @export
- * @deprecated Use ee.Filter.stringEndsWith().
- */
-ee.Filter.ends_with = function(name, value) {
-  return /** @type {ee.Filter} */(
-      ee.ApiFunction._call('Filter.stringEndsWith', name, value));
-};
-
-
-/**
- * Filter on metadata not ending with the given string.
- *
- * @param {string} name The property name to filter on.
- * @param {string} value The value to compare against.
- * @return {ee.Filter} The constructed filter.
- * @export
- * @deprecated Use ee.Filter.stringEndsWith(...).not().
- */
-ee.Filter.not_ends_with = function(name, value) {
-  return ee.Filter.ends_with(name, value).not();
-};
-
-
-/**
- * @see ee.Filter.eq
- * @param {...?} var_args
- * @return {ee.Filter} The modified filter.
- * @export
- * @deprecated Use the static version of this method.
- */
-ee.Filter.prototype.eq = function(var_args) {
-  return this.append_(ee.Filter.eq.apply(null, [].slice.call(arguments)));
-};
-
-
-/**
- * @return {number} The number of predicates that have been added to this
- * filter. This does not count nested predicates.
- * @export
- * @deprecated This is an implementation detail that is subject to change.
- */
-ee.Filter.prototype.length = function() {
-  return this.filter_.length;
-};
-
-
-/**
- * @see ee.Filter.neq
- * @param {...?} var_args
- * @return {ee.Filter} The modified filter.
- * @export
- * @deprecated Use the static version of this method.
- */
-ee.Filter.prototype.neq = function(var_args) {
-  return this.append_(ee.Filter.neq.apply(null, [].slice.call(arguments)));
-};
-
-
-/**
- * @see ee.Filter.lt
- * @param {...?} var_args
- * @return {ee.Filter} The modified filter.
- * @export
- * @deprecated Use the static version of this method.
- */
-ee.Filter.prototype.lt = function(var_args) {
-  return this.append_(ee.Filter.lt.apply(null, [].slice.call(arguments)));
-};
-
-
-/**
- * @see ee.Filter.gte
- * @param {...?} var_args
- * @return {ee.Filter} The modified filter.
- * @export
- * @deprecated Use the static version of this method.
- */
-ee.Filter.prototype.gte = function(var_args) {
-  return this.append_(ee.Filter.gte.apply(null, [].slice.call(arguments)));
-};
-
-
-/**
- * @see ee.Filter.gt
- * @param {...?} var_args
- * @return {ee.Filter} The modified filter.
- * @export
- * @deprecated Use the static version of this method.
- */
-ee.Filter.prototype.gt = function(var_args) {
-  return this.append_(ee.Filter.gt.apply(null, [].slice.call(arguments)));
-};
-
-
-/**
- * @see ee.Filter.lte
- * @param {...?} var_args
- * @return {ee.Filter} The modified filter.
- * @export
- * @deprecated Use the static version of this method.
- */
-ee.Filter.prototype.lte = function(var_args) {
-  return this.append_(ee.Filter.lte.apply(null, [].slice.call(arguments)));
-};
-
-
-/**
- * @see ee.Filter.contains
- * @param {...?} var_args
- * @return {ee.Filter} The modified filter.
- * @export
- * @deprecated Use the static version of this method.
- */
-ee.Filter.prototype.contains = function(var_args) {
-  return this.append_(ee.Filter.contains.apply(null, [].slice.call(arguments)));
-};
-
-
-/**
- * @see ee.Filter.not_contains
- * @param {...?} var_args
- * @return {ee.Filter} The modified filter.
- * @export
- * @deprecated Use the static version of this method.
- */
-ee.Filter.prototype.not_contains = function(var_args) {
-  return this.append_(
-      ee.Filter.not_contains.apply(null, [].slice.call(arguments)));
-};
-
-
-/**
- * @see ee.Filter.starts_with
- * @param {...?} var_args
- * @return {ee.Filter} The modified filter.
- * @export
- * @deprecated Use the static version of this method.
- */
-ee.Filter.prototype.starts_with = function(var_args) {
-  return this.append_(
-      ee.Filter.starts_with.apply(null, [].slice.call(arguments)));
-};
-
-
-/**
- * @see ee.Filter.not_starts_with
- * @param {...?} var_args
- * @return {ee.Filter} The modified filter.
- * @export
- * @deprecated Use the static version of this method.
- */
-ee.Filter.prototype.not_starts_with = function(var_args) {
-  return this.append_(
-      ee.Filter.not_starts_with.apply(null, [].slice.call(arguments)));
-};
-
-
-/**
- * @see ee.Filter.ends_with
- * @param {...?} var_args
- * @return {ee.Filter} The modified filter.
- * @export
- * @deprecated Use the static version of this method.
- */
-ee.Filter.prototype.ends_with = function(var_args) {
-  return this.append_(
-      ee.Filter.ends_with.apply(null, [].slice.call(arguments)));
-};
-
-
-/**
- * @see ee.Filter.not_ends_with
- * @param {...?} var_args
- * @return {ee.Filter} The modified filter.
- * @export
- * @deprecated Use the static version of this method.
- */
-ee.Filter.prototype.not_ends_with = function(var_args) {
-  return this.append_(
-      ee.Filter.not_ends_with.apply(null, [].slice.call(arguments)));
-};
-
-
-/**
- * @see ee.Filter.and
- * @param {...?} var_args
- * @return {ee.Filter} The modified filter.
- * @export
- * @deprecated Use the static version of this method.
- */
-ee.Filter.prototype.and = function(var_args) {
-  return this.append_(ee.Filter.and.apply(null, [].slice.call(arguments)));
-};
-
-
-/*
- * There is no prototype version of 'or', to avoid the abiguous syntax.
- * Example:  a.or(b), doesn't do what it looks like it would; it appends
- * "or(b)" to the list of filters that includes a, which is equal
- * to "and(a, b)", not "or(a,b)".
- */
-
-
-/**
- * @see ee.Filter.date
- * @param {...?} var_args
- * @return {ee.Filter} The modified filter.
- * @export
- * @deprecated Use the static version of this method.
- */
-ee.Filter.prototype.date = function(var_args) {
-  return this.append_(ee.Filter.date.apply(null, [].slice.call(arguments)));
-};
-
-
-/**
- * @see ee.Filter.inList
- * @param {...?} var_args
- * @return {ee.Filter} The modified filter.
- * @export
- * @deprecated Use the static version of this method.
- */
-ee.Filter.prototype.inList = function(var_args) {
-  return this.append_(ee.Filter.inList.apply(null, [].slice.call(arguments)));
-};
-
-
-/**
- * @see ee.Filter.bounds
- * @param {...?} var_args
- * @return {ee.Filter} The modified filter.
- * @export
- * @deprecated Use the static version of this method.
- */
-ee.Filter.prototype.bounds = function(var_args) {
-  return this.append_(ee.Filter.bounds.apply(null, [].slice.call(arguments)));
 };

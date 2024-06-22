@@ -1,18 +1,14 @@
-#!/usr/bin/env python
 """A representation of an Earth Engine computed object."""
 
+from __future__ import annotations
 
+from typing import Any, Callable, Dict, Optional
 
-# Using lowercase function naming to match the JavaScript names.
-# pylint: disable=g-bad-name
-
-# pylint: disable=g-bad-import-order
-import six
-
-from . import data
-from . import ee_exception
-from . import encodable
-from . import serializer
+from ee import _utils
+from ee import data
+from ee import ee_exception
+from ee import encodable
+from ee import serializer
 
 
 class ComputedObjectMetaclass(type):
@@ -32,8 +28,7 @@ class ComputedObjectMetaclass(type):
       return type.__call__(cls, *args, **kwargs)
 
 
-class ComputedObject(six.with_metaclass(
-    ComputedObjectMetaclass, encodable.Encodable)):
+class ComputedObject(encodable.Encodable, metaclass=ComputedObjectMetaclass):
   """A representation of an Earth Engine computed object.
 
   This is a base class for most API objects.
@@ -45,56 +40,73 @@ class ComputedObject(six.with_metaclass(
   ComputedObjects come in two flavors:
   1. If func != null and args != null, the ComputedObject is encoded as an
      invocation of func with args.
-  2. If func == null and agrs == null, the ComputedObject is a variable
+  2. If func == null and args == null, the ComputedObject is a variable
      reference. The variable name is stored in its varName member. Note that
      in this case, varName may still be null; this allows the name to be
      deterministically generated at a later time. This is used to generate
      deterministic variable names for mapped functions, ensuring that nested
      mapping calls do not use the same variable name.
   """
+  func: Optional[Any]
+  args: Optional[Dict[str, Any]]
+  varName: Optional[str]  # pylint: disable=g-bad-name
 
-  def __init__(self, func, args, opt_varName=None):
+  # Tell pytype not to worry about dynamic attributes.
+  _HAS_DYNAMIC_ATTRIBUTES: bool = True
+
+  # False until the client has initialized the dynamic attributes.
+  _initialized: bool
+
+  @_utils.accept_opt_prefix('opt_varName')
+  def __init__(
+      self,
+      func: Optional[Any],
+      args: Optional[Dict[str, Any]],
+      varName: Optional[str] = None,  # pylint: disable=g-bad-name
+  ):
     """Creates a computed object.
 
     Args:
       func: The ee.Function called to compute this object, either as an
-          Algorithm name or an ee.Function object.
-      args: A dictionary of arguments to pass to the specified function.
-          Note that the caller is responsible for promoting the arguments
-          to the correct types.
-      opt_varName: A variable name. If not None, the object will be encoded
-          as a reference to a CustomFunction variable of this name, and both
-          'func' and 'args' must be None. If all arguments are None, the
-          object is considered an unnamed variable, and a name will be
-          generated when it is included in an ee.CustomFunction.
+        Algorithm name or an ee.Function object.
+      args: A dictionary of arguments to pass to the specified function. Note
+        that the caller is responsible for promoting the arguments to the
+        correct types.
+      varName: A variable name. If not None, the object will be encoded as a
+        reference to a CustomFunction variable of this name, and both 'func' and
+        'args' must be None. If all arguments are None, the object is considered
+        an unnamed variable, and a name will be generated when it is included in
+        an ee.CustomFunction.
     """
-    if opt_varName and (func or args):
+    if varName and (func or args):
       raise ee_exception.EEException(
-          'When "opt_varName" is specified, "func" and "args" must be null.')
+          'When "varName" is specified, "func" and "args" must be null.'
+      )
     self.func = func
     self.args = args
-    self.varName = opt_varName
+    self.varName = varName  # pylint: disable=g-bad-name
 
-  def __eq__(self, other):
+  def __eq__(self, other: Any) -> bool:
     # pylint: disable=unidiomatic-typecheck
     return (type(self) == type(other) and
             self.__dict__ == other.__dict__)
 
-  def __ne__(self, other):
+  def __ne__(self, other: Any) -> bool:
     return not self.__eq__(other)
 
-  def __hash__(self):
+  def __hash__(self) -> int:
     return hash(ComputedObject.freeze(self.__dict__))
 
-  def getInfo(self):
+  # pylint: disable-next=useless-parent-delegation
+  def getInfo(self) -> Optional[Any]:
     """Fetch and return information about this object.
 
     Returns:
       The object can evaluate to anything.
     """
-    return data.getValue({'json': self.serialize()})
+    return data.computeValue(self)
 
-  def encode(self, encoder):
+  def encode(self, encoder: Optional[Callable[..., Any]]) -> Dict[str, Any]:
     """Encodes the object in a format compatible with Serializer."""
     if self.isVariable():
       return {
@@ -102,13 +114,17 @@ class ComputedObject(six.with_metaclass(
           'value': self.varName
       }
     else:
+      if encoder is None:
+        raise ValueError(
+            'encoder can only be none when encode is for a variable.')
       # Encode the function that we're calling.
       func = encoder(self.func)
       # Built-in functions are encoded as strings under a different key.
-      key = 'functionName' if isinstance(func, six.string_types) else 'function'
+      key = 'functionName' if isinstance(func, str) else 'function'
 
       # Encode all arguments recursively.
       encoded_args = {}
+      assert self.args is not None  # For pytype
       for name, value in self.args.items():
         if value is not None:
           encoded_args[name] = encoder(value)
@@ -119,31 +135,68 @@ class ComputedObject(six.with_metaclass(
           key: func
       }
 
-  def serialize(self, opt_pretty=False):
+  def encode_cloud_value(self, encoder: Any) -> Dict[str, Any]:
+    if self.isVariable():
+      ref = self.varName
+      if ref is None and isinstance(
+          getattr(encoder, '__self__'), serializer.Serializer):
+        ref = encoder.__self__.unbound_name
+      if ref is None:
+        # We are trying to call getInfo() or make some other server call inside
+        # a function passed to collection.map() or .iterate(), and the call uses
+        # one of the function arguments. The argument will be unbound outside of
+        # the map operation and cannot be evaluated. See the Count Functions
+        # case in customfunction.py for details on the unbound_name mechanism.
+        raise ee_exception.EEException(
+            "A mapped function's arguments cannot be used in "
+            'client-side operations'
+        )
+      return {'argumentReference': ref}
+    else:
+      if isinstance(self.func, str):
+        invocation = {'functionName': self.func}
+      else:
+        assert self.func is not None
+        invocation = self.func.encode_cloud_invocation(encoder)
+
+      # Encode all arguments recursively.
+      encoded_args: Dict[str, Any] = {}
+      for name in sorted(self.args):
+        value = self.args[name]
+        if value is not None:
+          encoded_args[name] = {'valueReference': encoder(value)}
+      invocation['arguments'] = encoded_args
+      return {'functionInvocationValue': invocation}
+
+  @_utils.accept_opt_prefix('opt_pretty')
+  def serialize(self, pretty: bool = False, for_cloud_api: bool = True) -> str:
     """Serialize this object into a JSON string.
 
     Args:
-      opt_pretty: A flag indicating whether to pretty-print the JSON.
+      pretty: A flag indicating whether to pretty-print the JSON.
+      for_cloud_api: Whether the encoding should be done for the Cloud API or
+        the legacy API.
 
     Returns:
       The serialized representation of this object.
     """
-    return serializer.toJSON(self, opt_pretty)
+    return serializer.toJSON(self, pretty, for_cloud_api=for_cloud_api)
 
-  def __str__(self):
+  def __str__(self) -> str:
     """Writes out the object in a human-readable form."""
     return 'ee.%s(%s)' % (self.name(), serializer.toReadableJSON(self))
 
-  def isVariable(self):
+  def isVariable(self) -> bool:
     """Returns whether this computed object is a variable reference."""
     # We can't just check for varName != null, since we allow that
     # to remain null until for CustomFunction.resolveNamelessArgs_().
     return self.func is None and self.args is None
 
-  def aside(self, func, *var_args):
+  def aside(self, func: Any, *var_args) -> ComputedObject:
     """Calls a function passing this object as the first argument.
 
-    Returns the object itself for chaining. Convenient e.g. when debugging:
+    Returns the object itself for chaining. Convenient when debugging. For
+    example:
 
     c = (ee.ImageCollection('foo').aside(logging.info)
              .filterDate('2001-01-01', '2002-01-01').aside(logging.info)
@@ -162,12 +215,12 @@ class ComputedObject(six.with_metaclass(
     return self
 
   @classmethod
-  def name(cls):
+  def name(cls) -> str:
     """Returns the name of the object, used in __str__()."""
     return 'ComputedObject'
 
   @classmethod
-  def _cast(cls, obj):
+  def _cast(cls, obj: ComputedObject) -> ComputedObject:
     """Cast a ComputedObject to a new instance of the same class as this.
 
     Args:
@@ -179,14 +232,14 @@ class ComputedObject(six.with_metaclass(
     if isinstance(obj, cls):
       return obj
     else:
-      result = cls.__new__(cls)
+      result = cls.__new__(cls)  # pylint: disable=no-value-for-parameter
       result.func = obj.func
       result.args = obj.args
       result.varName = obj.varName
       return result
 
   @staticmethod
-  def freeze(obj):
+  def freeze(obj: Any) -> Any:
     """Freeze a list or dict so it can be hashed."""
     if isinstance(obj, dict):
       return frozenset(
@@ -195,3 +248,10 @@ class ComputedObject(six.with_metaclass(
       return tuple(map(ComputedObject.freeze, obj))
     else:
       return obj
+
+  def is_func_returning_same(self, an_object: Any) -> bool:
+    if not isinstance(an_object, ComputedObject):
+      return False
+    if not an_object.func:
+      return False
+    return an_object.func.getReturnType() == self.name()

@@ -1,33 +1,27 @@
-#!/usr/bin/env python
-"""Test class for oauth."""
+#!/usr/bin/env python3
+"""Test for the ee.oauth module."""
 
-
+from collections.abc import Iterator
+import contextlib
 import json
 import sys
-import mock
-
-# pylint: disable=g-import-not-at-top
-try:
-  # Python 2.x
-  import urlparse
-except ImportError:
-  # Python 3.x
-  import urllib.parse as urlparse
-
 import tempfile
-import unittest
+from unittest import mock
+import urllib.parse
 
+import unittest
 import ee
 
 
 class OAuthTest(unittest.TestCase):
 
   def setUp(self):
+    super().setUp()
     self.test_tmpdir = tempfile.mkdtemp()
 
   def testRequestToken(self):
 
-    class MockResponse(object):
+    class MockResponse:
 
       def __init__(self, code):
         self.code = code.decode()
@@ -35,35 +29,35 @@ class OAuthTest(unittest.TestCase):
       def read(self):
         return ('{"refresh_token": "' + self.code + '456"}').encode()
 
-    def mock_urlopen(unused_url, param):
-      return MockResponse(urlparse.parse_qs(param)[b'code'][0])
+    def mock_urlopen(url, param):
+      del url  # Unused.
+      parsed = urllib.parse.parse_qs(param)
+      self.assertEqual('xyz', parsed[b'code_verifier'][0].decode())
+      return MockResponse(parsed[b'code'][0])
 
-    # Choose urlopen function to mock based on Python version
-    if sys.version_info[0] < 3:
-      urlopen_lib = 'urllib2.urlopen'
-    else:
-      urlopen_lib = 'urllib.request.urlopen'
-
-    with mock.patch(urlopen_lib, new=mock_urlopen):
+    with mock.patch('urllib.request.urlopen', new=mock_urlopen):
       auth_code = '123'
-      refresh_token = ee.oauth.request_token(auth_code)
+      verifier = 'xyz'
+      refresh_token = ee.oauth.request_token(auth_code, verifier)
       self.assertEqual('123456', refresh_token)
 
   def testWriteToken(self):
 
     def mock_credentials_path():
-      return self.test_tmpdir+'/tempfile'
+      return self.test_tmpdir + '/tempfile'
 
     oauth_pkg = 'ee.oauth'
-    with mock.patch(oauth_pkg+'.get_credentials_path',
-                    new=mock_credentials_path):
-      refresh_token = '123'
-      ee.oauth.write_token(refresh_token)
+    with mock.patch(
+        oauth_pkg + '.get_credentials_path', new=mock_credentials_path):
+      client_info = dict(refresh_token='123')
+      ee.oauth.write_private_json(ee.oauth.get_credentials_path(), client_info)
 
     with open(mock_credentials_path()) as f:
       token = json.load(f)
-      self.assertEquals({'refresh_token': '123'}, token)
+      self.assertEqual({'refresh_token': '123'}, token)
 
+  def test_in_colab_shell(self):
+    self.assertFalse(ee.oauth.in_colab_shell())
 
 if __name__ == '__main__':
   unittest.main()

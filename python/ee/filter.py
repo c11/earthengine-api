@@ -1,4 +1,3 @@
-#!/usr/bin/env python
 """Collection filters.
 
 Example usage:
@@ -8,45 +7,13 @@ Example usage:
      .lt('time', value)
 """
 
-
-
 # Using lowercase function naming to match the JavaScript names.
 # pylint: disable=g-bad-name
 
-# Our custom instance/static decorator is not recognized by lint.
-# pylint: disable=no-self-argument, no-method-argument, g-doc-args
-
-import functools
-
-from . import apifunction
-from . import computedobject
-from . import deprecation
-from . import ee_exception
-
-
-class _FilterAutoCreator(object):
-  """A decorator to make Filter methods both static and instance.
-
-  If the decorated method is called as an instance method, its result is passed
-  through _append().
-  """
-
-  def __init__(self, func):
-    self.func = func
-
-  def __get__(self, filter_instance, cls=None):
-    if filter_instance is None:
-      return self.func
-
-    deprecated_decorator = deprecation.Deprecated(
-        'Use the static version of this method.')
-    deprecated_func = deprecated_decorator(self.func)
-    @functools.wraps(deprecated_func)
-    def PassThroughAppend(*args, **kwargs):
-      return filter_instance._append(  # pylint: disable=protected-access
-          deprecated_func(*args, **kwargs))
-
-    return PassThroughAppend
+from ee import _utils
+from ee import apifunction
+from ee import computedobject
+from ee import ee_exception
 
 
 # A map from the deprecated old-style comparison operator names to API
@@ -67,55 +34,59 @@ class Filter(computedobject.ComputedObject):
 
   _initialized = False
 
-  def __init__(self, opt_filter=None):
+  # Tell pytype to not complain about dynamic attributes.
+  _HAS_DYNAMIC_ATTRIBUTES = True
+
+  @_utils.accept_opt_prefix(('opt_filter', 'filter_'))
+  def __init__(self, filter_=None):
     """Construct a filter.
 
-    This constuctor accepts the following args:
+    This constructor accepts the following args:
       1) Another filter.
       2) An array of filters (which are implicitly ANDed together).
       3) A ComputedObject returning a filter. Users shouldn't be making these;
          they're produced by the generator functions below.
 
     Args:
-      opt_filter: Optional filter to add.
+      filter_: Optional filter to add.
     """
     self.initialize()
 
-    if isinstance(opt_filter, (list, tuple)):
-      if not opt_filter:
+    if isinstance(filter_, (list, tuple)):
+      if not filter_:
         raise ee_exception.EEException('Empty list specified for ee.Filter().')
-      elif len(opt_filter) == 1:
-        opt_filter = opt_filter[0]
+      elif len(filter_) == 1:
+        filter_ = filter_[0]
       else:
-        self._filter = tuple(opt_filter)
-        super(Filter, self).__init__(
+        self._filter = tuple(filter_)
+        super().__init__(
             apifunction.ApiFunction.lookup('Filter.and'),
             {'filters': self._filter})
         return
 
-    if isinstance(opt_filter, computedobject.ComputedObject):
-      super(Filter, self).__init__(
-          opt_filter.func, opt_filter.args, opt_filter.varName)
-      self._filter = (opt_filter,)
-    elif opt_filter is None:
+    if isinstance(filter_, computedobject.ComputedObject):
+      super().__init__(filter_.func, filter_.args, filter_.varName)
+      self._filter = (filter_,)
+    elif filter_ is None:
       # A silly call with no arguments left for backward-compatibility.
       # Encoding such a filter is expected to fail, but it can be composed
       # by calling the various methods that end up in _append().
-      super(Filter, self).__init__(None, None)
+      super().__init__(None, None)
       self._filter = ()
     else:
       raise ee_exception.EEException(
-          'Invalid argument specified for ee.Filter(): %s' % opt_filter)
+          'Invalid argument specified for ee.Filter(): %s' % filter_
+      )
 
   @classmethod
-  def initialize(cls):
+  def initialize(cls) -> None:
     """Imports API functions to this class."""
     if not cls._initialized:
-      apifunction.ApiFunction.importApi(cls, 'Filter', 'Filter')
+      apifunction.ApiFunction.importApi(cls, cls.name(), cls.name())
       cls._initialized = True
 
   @classmethod
-  def reset(cls):
+  def reset(cls) -> None:
     """Removes imported API functions from this class."""
     apifunction.ApiFunction.clearApi(cls)
     cls._initialized = False
@@ -157,12 +128,11 @@ class Filter(computedobject.ComputedObject):
     """Returns the opposite of this filter.
 
     Returns:
-      The negated filter, which will match iff this filter doesn't.
+      The negated filter, which will match if and only if this filter does not.
     """
     return apifunction.ApiFunction.call_('Filter.not', self)
 
-  @_FilterAutoCreator
-  @deprecation.Deprecated('Use ee.Filter.eq(), ee.Filter.gte(), etc.')
+  @staticmethod
   def metadata_(name, operator, value):
     """Filter on metadata. This is deprecated.
 
@@ -175,6 +145,8 @@ class Filter(computedobject.ComputedObject):
 
     Returns:
       The new filter.
+
+    Deprecated.  Use ee.Filter.eq(), ee.Filter.gte(), etc.'
     """
     operator = operator.lower()
 
@@ -193,73 +165,37 @@ class Filter(computedobject.ComputedObject):
 
     return new_filter.Not() if negated else new_filter
 
-  @_FilterAutoCreator
+  @staticmethod
   def eq(name, value):
     """Filter to metadata equal to the given value."""
     return apifunction.ApiFunction.call_('Filter.equals', name, value)
 
-  @_FilterAutoCreator
+  @staticmethod
   def neq(name, value):
     """Filter to metadata not equal to the given value."""
     return Filter.eq(name, value).Not()
 
-  @_FilterAutoCreator
+  @staticmethod
   def lt(name, value):
     """Filter to metadata less than the given value."""
     return apifunction.ApiFunction.call_('Filter.lessThan', name, value)
 
-  @_FilterAutoCreator
+  @staticmethod
   def gte(name, value):
     """Filter on metadata greater than or equal to the given value."""
     return Filter.lt(name, value).Not()
 
-  @_FilterAutoCreator
+  @staticmethod
   def gt(name, value):
     """Filter on metadata greater than the given value."""
     return apifunction.ApiFunction.call_('Filter.greaterThan', name, value)
 
-  @_FilterAutoCreator
+  @staticmethod
   def lte(name, value):
     """Filter on metadata less than or equal to the given value."""
     return Filter.gt(name, value).Not()
 
-  @_FilterAutoCreator
-  @deprecation.Deprecated('Use ee.Filter.stringContains().')
-  def contains(name, value):
-    """Filter on metadata containing the given string."""
-    return apifunction.ApiFunction.call_('Filter.stringContains', name, value)
-
-  @_FilterAutoCreator
-  @deprecation.Deprecated('Use ee.Filter.stringStartsWith(...).Not().')
-  def not_contains(name, value):
-    """Filter on metadata not containing the given string."""
-    return Filter.contains(name, value).Not()
-
-  @_FilterAutoCreator
-  @deprecation.Deprecated('Use ee.Filter.stringStartsWith().')
-  def starts_with(name, value):
-    """Filter on metadata begining with the given string."""
-    return apifunction.ApiFunction.call_('Filter.stringStartsWith', name, value)
-
-  @_FilterAutoCreator
-  @deprecation.Deprecated('Use ee.Filter.stringStartsWith().Not().')
-  def not_starts_with(name, value):
-    """Filter on metadata not begining with the given string."""
-    return Filter.starts_with(name, value).Not()
-
-  @_FilterAutoCreator
-  @deprecation.Deprecated('Use ee.Filter.stringEndsWith().')
-  def ends_with(name, value):
-    """Filter on metadata ending with the given string."""
-    return apifunction.ApiFunction.call_('Filter.stringEndsWith', name, value)
-
-  @_FilterAutoCreator
-  @deprecation.Deprecated('Use ee.Filter.stringEndsWith().Not().')
-  def not_ends_with(name, value):
-    """Filter on metadata not ending with the given string."""
-    return Filter.ends_with(name, value).Not()
-
-  @_FilterAutoCreator
+  @staticmethod
   def And(*args):
     """Combine two or more filters using boolean AND."""
     if len(args) == 1 and isinstance(args[0], (list, tuple)):
@@ -273,43 +209,45 @@ class Filter(computedobject.ComputedObject):
       args = args[0]
     return apifunction.ApiFunction.call_('Filter.or', args)
 
-  @_FilterAutoCreator
-  def date(start, opt_end=None):
+  @staticmethod
+  @_utils.accept_opt_prefix('opt_end')
+  def date(start, end=None):
     """Filter images by date.
 
     The start and end may be a Date, numbers (interpreted as milliseconds since
-    1970-01-01T00:00:00Z), or strings (such as '1996-01-01T08:00').
+    1970-01-01T00:00:00Z), or strings (such as '1996-01-01T08:00'). Based on
+    'system:time_start'.
 
     Args:
       start: The inclusive start date.
-      opt_end: The optional exclusive end date, If not specified, a
-               1-millisecond range starting at 'start' is created.
+      end: The optional exclusive end date, If not specified, a 1-millisecond
+        range starting at 'start' is created.
 
     Returns:
       The modified filter.
     """
-    date_range = apifunction.ApiFunction.call_('DateRange', start, opt_end)
+    date_range = apifunction.ApiFunction.call_('DateRange', start, end)
     return apifunction.ApiFunction.apply_('Filter.dateRangeContains', {
         'leftValue': date_range,
         'rightField': 'system:time_start'
     })
 
-  @_FilterAutoCreator
-  def inList(opt_leftField=None,
-             opt_rightValue=None,
-             opt_rightField=None,
-             opt_leftValue=None):
+  @staticmethod
+  @_utils.accept_opt_prefix(
+      'opt_leftField', 'opt_rightValue', 'opt_rightField', 'opt_leftValue'
+  )
+  def inList(leftField=None, rightValue=None, rightField=None, leftValue=None):
     """Filter on metadata contained in a list.
 
     Args:
-      opt_leftField: A selector for the left operand.
-          Should not be specified if leftValue is specified.
-      opt_rightValue: The value of the right operand.
-          Should not be specified if rightField is specified.
-      opt_rightField: A selector for the right operand.
-          Should not be specified if rightValue is specified.
-      opt_leftValue: The value of the left operand.
-          Should not be specified if leftField is specified.
+      leftField: A selector for the left operand. Should not be specified if
+        leftValue is specified.
+      rightValue: The value of the right operand. Should not be specified if
+        rightField is specified.
+      rightField: A selector for the right operand. Should not be specified if
+        rightValue is specified.
+      leftValue: The value of the left operand. Should not be specified if
+        leftField is specified.
 
     Returns:
       The constructed filter.
@@ -317,38 +255,66 @@ class Filter(computedobject.ComputedObject):
     # Implement this in terms of listContains, with the arguments switched.
     # In listContains the list is on the left side, while in inList it's on
     # the right.
-    return apifunction.ApiFunction.apply_('Filter.listContains', {
-        'leftField': opt_rightField,
-        'rightValue': opt_leftValue,
-        'rightField': opt_leftField,
-        'leftValue': opt_rightValue
-    })
+    return apifunction.ApiFunction.apply_(
+        'Filter.listContains',
+        {
+            'leftField': rightField,
+            'rightValue': leftValue,
+            'rightField': leftField,
+            'leftValue': rightValue,
+        },
+    )
 
-  @_FilterAutoCreator
-  def geometry(geometry, opt_errorMargin=None):
-    """Filter on bounds.
+  @staticmethod
+  @_utils.accept_opt_prefix('opt_errorMargin')
+  def geometry(geometry, errorMargin=None):
+    """Filter on intersection with geometry.
 
     Items in the collection with a footprint that fails to intersect
-    the bounds will be excluded when the collection is evaluated.
+    the given geometry will be excluded.
 
     Args:
-      geometry: The geometry to filter to either as a GeoJSON geometry,
-          or a FeatureCollection, from which a geometry will be extracted.
-      opt_errorMargin: An optional error margin. If a number, interpreted as
-          sphere surface meters.
+      geometry: The geometry to filter to either as a GeoJSON geometry, or a
+        FeatureCollection, from which a geometry will be extracted.
+      errorMargin: An optional error margin. If a number, interpreted as sphere
+        surface meters.
 
     Returns:
-      The modified filter.
+      The constructed filter.
     """
     # Invoke geometry promotion then manually promote to a Feature.
     args = {
         'leftField': '.all',
         'rightValue': apifunction.ApiFunction.call_('Feature', geometry)
     }
-    if opt_errorMargin is not None:
-      args['maxError'] = opt_errorMargin
+    if errorMargin is not None:
+      args['maxError'] = errorMargin
     return apifunction.ApiFunction.apply_('Filter.intersects', args)
 
   @staticmethod
-  def name():
+  @_utils.accept_opt_prefix('opt_errorMargin')
+  def bounds(geometry, errorMargin=None):
+    """Filter on intersection with geometry.
+
+    Items in the collection with a footprint that fails to intersect
+    the given geometry will be excluded. This is an alias for geometry().
+
+    Caution: providing a large or complex collection as the `geometry` argument
+    can result in poor performance. Collating the geometry of collections does
+    not scale well; use the smallest collection (or geometry) that is required
+    to achieve the desired outcome.
+
+    Args:
+      geometry: The geometry to filter to either as a GeoJSON geometry, or a
+        FeatureCollection, from which a geometry will be extracted.
+      errorMargin: An optional error margin. If a number, interpreted as sphere
+        surface meters.
+
+    Returns:
+      The constructed filter.
+    """
+    return Filter.geometry(geometry, errorMargin)
+
+  @staticmethod
+  def name() -> str:
     return 'Filter'

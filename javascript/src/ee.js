@@ -26,6 +26,8 @@ goog.require('ee.Number');
 goog.require('ee.String');
 goog.require('ee.Terrain');
 goog.require('ee.Types');
+/** @suppress {extraRequire} */
+goog.require('ee.batch');
 goog.require('ee.data');
 goog.require('goog.array');
 goog.require('goog.object');
@@ -48,22 +50,32 @@ goog.require('goog.object');
  *
  * In most cases, an authorization token should be set before the library
  * is initialized, either with ee.data.authorize() or ee.data.setAuthToken().
- * When a proxy is used, an auth token may not be required.
  *
- * @param {string?=} opt_baseurl The (proxied) EarthEngine REST API endpoint.
- * @param {string?=} opt_tileurl The (unproxied) EarthEngine REST tile endpoint.
+ * In Python, this method is named ee.Initialize, with a capital I.  Note that
+ * some parameters differ between JavaScript and Python.  In addition to opt_url
+ * and project below, Python also supports:
+ *  credentials - a google.oauth2.Credentials object or 'persistent' to use
+ *    stored credentials (the default);
+ *  http_transport - a httplib2.Http client.
+ *
+ * @param {string?=} opt_baseurl The Earth Engine REST API endpoint.
+ *     (Python argument name: opt_url)
+ * @param {string?=} opt_tileurl The Earth Engine REST tile endpoint,
+ *     this is optional and defaults to baseurl. (JavaScript only)
  * @param {function()?=} opt_successCallback An optional callback to be invoked
  *     when the initialization is successful. If not provided, the
- *     initialization is done synchronously.
+ *     initialization is done synchronously. (JavaScript only)
  * @param {function(Error)?=} opt_errorCallback An optional callback to be
- *     invoked with an error if the initialization fails.
+ *     invoked with an error if the initialization fails. (JavaScript only)
  * @param {string?=} opt_xsrfToken A string to pass in the "xsrfToken"
- *     parameter of EE API XHRs.
+ *     parameter of EE API XHRs. (JavaScript only)
+ * @param {string?=} opt_project Optional client project ID or number to use
+ *     when making API calls. (Python argument name: project)
  * @export
  */
 ee.initialize = function(
     opt_baseurl, opt_tileurl, opt_successCallback, opt_errorCallback,
-    opt_xsrfToken) {
+    opt_xsrfToken, opt_project) {
   // If we're already initialized and not getting new parameters, just return.
   if (ee.ready_ == ee.InitState.READY && !opt_baseurl && !opt_tileurl) {
     if (opt_successCallback) {
@@ -72,7 +84,7 @@ ee.initialize = function(
     return;
   }
 
-  var isAsynchronous = goog.isDefAndNotNull(opt_successCallback);
+  const isAsynchronous = (opt_successCallback != null);
 
   // Register the error callback.
   if (opt_errorCallback) {
@@ -92,7 +104,7 @@ ee.initialize = function(
   }
 
   ee.ready_ = ee.InitState.LOADING;
-  ee.data.initialize(opt_baseurl, opt_tileurl, opt_xsrfToken);
+  ee.data.initialize(opt_baseurl, opt_tileurl, opt_xsrfToken, opt_project);
 
   if (isAsynchronous) {
     ee.successCallbacks_.push(opt_successCallback);
@@ -226,18 +238,18 @@ ee.ready = function() {
  * @param {ee.Function|string} func The function to call. Either an
  *     ee.Function object or the name of an API function.
  * @param {...*} var_args Positional arguments to pass to the function.
- * @return {ee.ComputedObject} An object representing the called function.
+ * @return {!ee.ComputedObject} An object representing the called function.
  *     If the signature specifies a recognized return type, the returned
  *     value will be cast to that type.
  * @export
  */
 ee.call = function(func, var_args) {
-  if (goog.isString(func)) {
+  if (typeof func === 'string') {
     func = new ee.ApiFunction(func);
   }
   // Extract var_args.
-  var args = Array.prototype.slice.call(arguments, 1);
-  // Call func.call with the extracted agrs.
+  const args = Array.prototype.slice.call(arguments, 1);
+  // Call func.call with the extracted args.
   return ee.Function.prototype.call.apply(func, args);
 };
 
@@ -248,13 +260,13 @@ ee.call = function(func, var_args) {
  * @param {ee.Function|string} func The function to call. Either an
  *     ee.Function object or the name of an API function.
  * @param {Object} namedArgs A dictionary of arguments to the function.
- * @return {ee.ComputedObject} An object representing the called function.
+ * @return {!ee.ComputedObject} An object representing the called function.
  *     If the signature specifies a recognized return type, the returned
  *     value will be cast to that type.
  * @export
  */
 ee.apply = function(func, namedArgs) {
-  if (goog.isString(func)) {
+  if (typeof func === 'string') {
     func = new ee.ApiFunction(func);
   }
   return func.apply(namedArgs);
@@ -353,21 +365,20 @@ ee.initializationFailure_ = function(e) {
  * @suppress {accessControls} We are calling functions with partial promotion.
  */
 ee.promote_ = function(arg, klass) {
-  if (goog.isNull(arg)) {
+  if (arg === null) {
     return null;
-  } else if (!goog.isDef(arg)) {
+  } else if (arg === undefined) {
     return undefined;
   }
 
-  var exportedEE = goog.global['ee'];
+  const exportedEE = goog.global['ee'];
 
   switch (klass) {
     case 'Image':
       return new ee.Image(/** @type {Object} */ (arg));
     case 'Feature':
       if (arg instanceof ee.Collection) {
-        // TODO(user): Decide whether we want to leave this in. It can be
-        //              quite dangerous on large collections.
+        // This can be quite dangerous on large collections.
         return ee.ApiFunction._call(
             'Feature', ee.ApiFunction._call('Collection.geometry', arg));
       } else {
@@ -382,7 +393,7 @@ ee.promote_ = function(arg, klass) {
         return new ee.Feature(/** @type {ee.Geometry} */ (arg));
       } else if (arg instanceof ee.ComputedObject) {
         // Try a cast.
-        var co = /** @type {ee.ComputedObject} */ (arg);
+        const co = /** @type {ee.ComputedObject} */ (arg);
         return new ee.Element(co.func, co.args, co.varName);
       } else {
         // No way to convert.
@@ -406,10 +417,10 @@ ee.promote_ = function(arg, klass) {
     case 'Filter':
       return new ee.Filter(/** @type {Object} */ (arg));
     case 'Algorithm':
-      if (goog.isString(arg)) {
+      if (typeof arg === 'string') {
         // An API function name.
         return new ee.ApiFunction(arg);
-      } else if (goog.isFunction(arg)) {
+      } else if (typeof arg === 'function') {
         // A native function that needs to be wrapped.
         return ee.CustomFunction.create(
             arg, 'Object', goog.array.repeat('Object', arg.length));
@@ -446,14 +457,14 @@ ee.promote_ = function(arg, klass) {
     default:
       // Handle dynamically generated classes.
       if (klass in exportedEE) {
-        var ctor = ee.ApiFunction.lookupInternal(klass);
+        const ctor = ee.ApiFunction.lookupInternal(klass);
         if (arg instanceof exportedEE[klass]) {
           // Return unchanged.
           return arg;
         } else if (ctor) {
           // The client-side constructor will call the server-side constructor.
           return new exportedEE[klass](arg);
-        } else if (goog.isString(arg)) {
+        } else if (typeof arg === 'string') {
           if (arg in exportedEE[klass]) {
             // arg is the name of a method on klass.
             return exportedEE[klass][arg].call();
@@ -478,22 +489,22 @@ ee.promote_ = function(arg, klass) {
  * @private
  */
 ee.initializeUnboundMethods_ = function() {
-  var unbound = ee.ApiFunction.unboundFunctions();
+  const unbound = ee.ApiFunction.unboundFunctions();
   goog.object.getKeys(unbound).sort().forEach(function(name) {
-    var func = unbound[name];
-    var signature = func.getSignature();
+    const func = unbound[name];
+    const signature = func.getSignature();
     if (signature['hidden']) {
       return;
     }
 
     // Create nested objects as needed.
-    var nameParts = name.split('.');
-    var target = ee.Algorithms;
+    let nameParts = name.split('.');
+    let target = ee.Algorithms;
     target['signature'] = {};
     while (nameParts.length > 1) {
-      var first = nameParts[0];
+      const first = nameParts[0];
       if (!(first in target)) {
-        // We must add a signature property so the playground docbox recognizes
+        // We must add a signature property so the Code Editor docbox recognizes
         // these objects as parts of the API.
         target[first] = {'signature': {}};
       }
@@ -502,7 +513,7 @@ ee.initializeUnboundMethods_ = function() {
     }
 
     // Attach the function.
-    var bound = function(var_args) {
+    const bound = function(var_args) {
       return func.callOrApply(
           undefined, Array.prototype.slice.call(arguments, 0));
     };
@@ -523,13 +534,13 @@ ee.initializeUnboundMethods_ = function() {
  * @suppress {accessControls} We update ApiFunction.boundSignatures_.
  */
 ee.initializeGeneratedClasses_ = function() {
-  var signatures = ee.ApiFunction.allSignatures();
+  const signatures = ee.ApiFunction.allSignatures();
 
   // Collect all the type names from functions, and all the return types.
-  var names = {};
-  var returnTypes = {};
-  for (var sig in signatures) {
-    var type;
+  const names = {};
+  const returnTypes = {};
+  for (const sig in signatures) {
+    let type;
     if (sig.indexOf('.') != -1) {
       type = sig.slice(0, sig.indexOf('.'));
     } else {
@@ -537,13 +548,13 @@ ee.initializeGeneratedClasses_ = function() {
     }
     names[type] = true;
     // Strip off extra type info.  e.g.: Dictionary<Object>
-    var rtype = signatures[sig]['returns'].replace(/<.*>/, '');
+    const rtype = signatures[sig]['returns'].replace(/<.*>/, '');
     returnTypes[rtype] = true;
   }
 
   // Create classes with names in both, excluding any types that already exist.
-  var exportedEE = goog.global['ee'];
-  for (var name in names) {
+  const exportedEE = goog.global['ee'];
+  for (const name in names) {
     if (name in returnTypes && !(name in exportedEE)) {
       exportedEE[name] = ee.makeClass_(name);
       ee.generatedClasses_.push(name);
@@ -566,9 +577,9 @@ ee.initializeGeneratedClasses_ = function() {
  * @private
  */
 ee.resetGeneratedClasses_ = function() {
-  var exportedEE = goog.global['ee'];
-  for (var i = 0; i < ee.generatedClasses_.length; i++) {
-    var name = ee.generatedClasses_[i];
+  const exportedEE = goog.global['ee'];
+  for (let i = 0; i < ee.generatedClasses_.length; i++) {
+    const name = ee.generatedClasses_[i];
     ee.ApiFunction.clearApi(exportedEE[name]);
     delete exportedEE[name];
   }
@@ -581,7 +592,7 @@ ee.resetGeneratedClasses_ = function() {
  * Dynamically make an ee helper class.
  *
  * @param {string} name The name of the class to create.
- * @return {Function} The generated class.
+ * @return {!Function} The generated class.
  * @private
  * @suppress {accessControls}
  */
@@ -601,10 +612,10 @@ ee.makeClass_ = function(name) {
    *
    * TODO(user): Generate docs for these classes.
    */
-  var target = function(var_args) {
-    var klass = goog.global['ee'][name];
-    var args = Array.prototype.slice.call(arguments);
-    var onlyOneArg = (args.length == 1);
+  const target = function(var_args) {
+    const klass = goog.global['ee'][name];
+    const args = Array.prototype.slice.call(arguments);
+    const onlyOneArg = (args.length == 1);
 
     // Are we trying to cast something that's already of the right class?
     if (onlyOneArg && args[0] instanceof klass) {
@@ -618,9 +629,9 @@ ee.makeClass_ = function(name) {
 
     // Decide whether to call a server-side constructor or just do a
     // client-side cast.
-    var ctor = ee.ApiFunction.lookupInternal(name);
-    var firstArgIsPrimitive = !(args[0] instanceof ee.ComputedObject);
-    var shouldUseConstructor = false;
+    const ctor = ee.ApiFunction.lookupInternal(name);
+    const firstArgIsPrimitive = !(args[0] instanceof ee.ComputedObject);
+    let shouldUseConstructor = false;
     if (ctor) {
       if (!onlyOneArg) {
         // Can't client-cast multiple arguments.
@@ -628,16 +639,21 @@ ee.makeClass_ = function(name) {
       } else if (firstArgIsPrimitive) {
         // Can't cast a primitive.
         shouldUseConstructor = true;
-      } else if (args[0].func != ctor) {
-        // We haven't already called the constructor on this object.
+      } else if (!args[0].func ||
+          args[0].func.getSignature().returns != ctor.getSignature().returns) {
+        // We have a single ComputedObject argument. If it returns a different
+        // type, we need to call the constructor. Otherwise this is a copy
+        // constructor usage, and we can simply cast.
         shouldUseConstructor = true;
       }
     }
 
     // Apply our decision.
     if (shouldUseConstructor) {
+      const namedArgs = ee.Types.useKeywordArgs(args, ctor.getSignature())
+          ? args[0] : ctor.nameArgs(args);
       // Call manually to avoid having promote() called on the output.
-      goog.base(this, ctor, ctor.promoteArgs(ctor.nameArgs(args)));
+      target.base(this, 'constructor', ctor, ctor.promoteArgs(namedArgs));
     } else {
       // Just cast and hope for the best.
       if (!onlyOneArg) {
@@ -648,11 +664,16 @@ ee.makeClass_ = function(name) {
         throw Error('Invalid argument for ee.' + name + '(): ' + args +
                     '. Must be a ComputedObject.');
       }
-      var theOneArg = args[0];
-      goog.base(this, theOneArg.func, theOneArg.args, theOneArg.varName);
+      const theOneArg = args[0];
+      target.base(this, 'constructor',
+          theOneArg.func, theOneArg.args, theOneArg.varName);
     }
   };
   goog.inherits(target, ee.ComputedObject);
+  /**
+   * @return {string}
+   * @override
+   */
   target.prototype.name = function() { return name; };
   ee.ApiFunction.importApi(target, name, name);
   return target;
